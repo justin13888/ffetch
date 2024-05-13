@@ -31,6 +31,7 @@ impl Config {
 
     /// Load config from a file
     // TODO: Support deserialization where undefined fields are set to default
+    // TODO: When deserializing, check the probe config order to determine another field. Need to modify ProbeConfig structure
     pub fn from_file(path: &Path) -> Result<Self, ConfigParseError> {
         // Read the file
         let file = std::fs::File::open(path)?;
@@ -106,10 +107,11 @@ impl Default for NeofetchRendererConfig {
     }
 }
 
+// TODO: Find neofetch online and make sure it covers everything
 // TODO: Figure out what other metadata is needed in the config (e.g. format of OS field)
+/// Configuration for probing. Refer to `ProbeValue` for what each metric corresponds to.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ProbeConfig {
-    /// Name of the OS (e.g. "Ubuntu 22.04.4 LTS")
     pub os: Option<String>,
     pub model: Option<String>,
     pub kernel: Option<String>,
@@ -133,8 +135,8 @@ pub struct ProbeConfig {
     pub bluetooth: Option<String>,
     pub bios: Option<String>,
 
-    // TODO: May be unimplementable on Windows
     pub gpu_driver: Option<String>,
+    pub cpu_usage: Option<String>,
     pub disk: Option<String>,
     pub battery: Option<String>,
     // TODO: Figure out what this should be
@@ -189,6 +191,7 @@ impl ProbeConfig {
             bluetooth: Some("Bluetooth".to_string()),
             bios: Some("BIOS".to_string()),
             gpu_driver: Some("GPU Driver".to_string()),
+            cpu_usage: Some("CPU Usage".to_string()),
             disk: Some("Disk".to_string()),
             battery: Some("Battery".to_string()),
             power_adapter: Some("Power Adapter".to_string()),

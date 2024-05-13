@@ -4,7 +4,7 @@ use tracing::debug;
 use crate::{
     colour::primary,
     config::NeofetchRendererConfig,
-    probe::{general_readout, ProbeList},
+    probe::{general_readout, ProbeList, ProbeResultValue},
 };
 
 use super::RendererError;
@@ -49,14 +49,22 @@ impl NeofetchRenderer {
 
         for (title, probe) in probe_list {
             let title = format!("{:width$}:", title, width = max_title_len);
-            let result = match probe() {
-                Ok(result) => result.to_string(),
+            let results = match probe() {
+                Ok(result) => match result {
+                    ProbeResultValue::Single(value) => vec![value.to_string()],
+                    ProbeResultValue::Multiple(values) => values
+                        .into_iter()
+                        .map(|v| v.to_string())
+                        .collect::<Vec<_>>(),
+                },
                 Err(err) => {
                     debug!("Error while probing {}: {}", title, err);
-                    "N/A".to_string()
+                    vec!["N/A".to_string()]
                 }
             };
-            println!("{} {}", style(title).fg(primary()), result);
+            results.into_iter().for_each(|result| {
+                println!("{} {}", style(title.clone()).fg(primary()), result);
+            });
         }
 
         // TODO: Render neofetch colour block below
