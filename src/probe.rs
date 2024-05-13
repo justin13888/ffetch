@@ -63,7 +63,7 @@ pub enum ProbeValue {
     /// CPU usage percentage
     /// E.g. 12
     CPUUsage(usize),
-    /// Disk usage (in MiB)
+    /// Disk usage (in bytes)
     /// (used, total)
     /// E.g.
     Disk(u64, u64), // TODO: CHECK
@@ -130,7 +130,11 @@ impl ToString for ProbeValue {
             ProbeValue::TerminalFont(terminal_font) => terminal_font.to_string(),
             ProbeValue::CPU(cpu) => cpu.to_string(),
             ProbeValue::GPU(gpu) => gpu.to_string(),
-            ProbeValue::Memory(free, total) => format!("{} MiB / {} MiB", free, total),
+            ProbeValue::Memory(free, total) => format!(
+                "{} MiB / {} MiB",
+                (free.clone() as f32 / (1024.0 * 1024.0)).round() as i32,
+                (total.clone() as f32 / (1024.0 * 1024.0)).round() as i32,
+            ),
             ProbeValue::Network(network) => network.to_string(),
             ProbeValue::Bluetooth(bluetooth) => bluetooth.to_string(),
             ProbeValue::BIOS(bios) => bios.to_string(),
@@ -138,8 +142,8 @@ impl ToString for ProbeValue {
             ProbeValue::CPUUsage(cpu_usage) => cpu_usage.to_string(),
             ProbeValue::Disk(used, total) => format!(
                 "{} G / {} G ({}%)",
-                (used.clone() as f32 / 1024.0).round() as i32,
-                (total.clone() as f32 / 1024.0).round() as i32,
+                (used.clone() as f32 / (1024.0 * 1024.0 * 1024.0)).round() as i32,
+                (total.clone() as f32 / (1024.0 * 1024.0 * 1024.0)).round() as i32,
                 (used.clone() as f32 / total.clone() as f32 * 100.0).round() as i32,
             ),
             ProbeValue::Battery(battery) => battery.to_string(),
