@@ -254,7 +254,7 @@ pub fn probe_metrics(config: &ProbeConfig) -> ProbeList {
             os.clone(),
             Box::new(|| {
                 Ok(ProbeResultValue::Single(ProbeValue::OS(
-                    general_readout().distribution()?,
+                    general_readout().os_name()?,
                 )))
                 // TODO: Doesn't work for all platforms ^^
             }),
