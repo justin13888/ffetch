@@ -3,9 +3,14 @@
 compile_error!("This crate is only supported on Linux, macOS, and Windows.");
 
 use clap::Parser;
-use tracing::debug;
+use tracing::{debug, Level};
 
-use crate::{config::Config, probe::probe_metrics, renderer::neofetch::NeofetchRenderer};
+
+use crate::{
+    config::Config,
+    probe::{general_readout, probe_metrics},
+    renderer::neofetch::NeofetchRenderer,
+};
 
 pub mod colour;
 pub mod config;
@@ -26,17 +31,19 @@ pub struct Args {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Parse CLI arguments
     let args = Args::parse();
-    // let verbose = args.verbose;
+    let verbose = args.verbose;
 
-    // // TODO: Initialize tracing (logging)
-    // match verbose {
-    //     true => {
-    //         tracing_subscriber::fmt::init();
-    //     }
-    //     false => {
-    //         tracing_subscriber::fmt::init();
-    //     }
-    // }
+    // TODO: Initialize tracing (logging)
+    match verbose {
+        true => {
+            tracing_subscriber::fmt()
+                .with_max_level(Level::TRACE)
+                .init();
+        }
+        false => {
+            tracing_subscriber::fmt::init();
+        }
+    }
 
     // Fetch config, otherwise use default
     let project_dirs = directories::ProjectDirs::from("net", "justin13888", "ffetch")
@@ -60,12 +67,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     debug!("Config: {:?}", config);
 
     // TODO: Read config and determine render output
-    let probe_list = probe_metrics(&config.probe);
+    let probe_list = config
+        .probes
+        .into_iter()
+        .map(|p| probe_metrics(&p))
+        .collect::<Vec<_>>();
     match config.renderer {
         config::RendererConfig::Neofetch => {
             NeofetchRenderer::new().draw(&config.neofetch, &probe_list)?;
         }
     };
+
+    use libmacchina::traits::GeneralReadout as _;
+    println!(
+        "{}",
+        general_readout()
+            .distribution()
+            .unwrap_or("N/A".to_string())
+    );
 
     Ok(())
 }

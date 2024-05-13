@@ -1,17 +1,16 @@
 use std::{
     fmt::{self, Display, Formatter},
-    os,
     sync::OnceLock,
 };
 
 use libmacchina::{
-    traits::{BatteryState, PackageManager, ReadoutError, ShellFormat, ShellKind},
+    traits::{BatteryState, ReadoutError, ShellFormat, ShellKind},
     BatteryReadout, GeneralReadout, KernelReadout, MemoryReadout, NetworkReadout, PackageReadout,
     ProductReadout,
 };
 use thiserror::Error;
 
-use crate::config::{Config, ProbeConfig};
+use crate::config::ProbeConfig;
 
 // TODO: Complete the rest of doc comments for this enum vv
 pub enum ProbeValue {
@@ -104,7 +103,7 @@ impl ToString for ProbeValue {
                 let hours = ((uptime / (60.0 * 60.0)) % 24.0).round() as i32;
                 let minutes = ((uptime / 60.0) % 60.0).round() as i32;
                 let seconds = (uptime % 60.0).round() as i32;
-                let res = String::new();
+                let _res = String::new();
 
                 if days > 0 {
                     format!("{:.0} days, {:.0} hours, {:.0} mins", days, hours, minutes)
@@ -132,8 +131,8 @@ impl ToString for ProbeValue {
             ProbeValue::GPU(gpu) => gpu.to_string(),
             ProbeValue::Memory(free, total) => format!(
                 "{} MiB / {} MiB",
-                (free.clone() as f32 / (1024.0 * 1024.0)).round() as i32,
-                (total.clone() as f32 / (1024.0 * 1024.0)).round() as i32,
+                (*free as f32 / (1024.0 * 1024.0)).round() as i32,
+                (*total as f32 / (1024.0 * 1024.0)).round() as i32,
             ),
             ProbeValue::Network(network) => network.to_string(),
             ProbeValue::Bluetooth(bluetooth) => bluetooth.to_string(),
@@ -142,9 +141,9 @@ impl ToString for ProbeValue {
             ProbeValue::CPUUsage(cpu_usage) => cpu_usage.to_string(),
             ProbeValue::Disk(used, total) => format!(
                 "{} G / {} G ({}%)",
-                (used.clone() as f32 / (1024.0 * 1024.0 * 1024.0)).round() as i32,
-                (total.clone() as f32 / (1024.0 * 1024.0 * 1024.0)).round() as i32,
-                (used.clone() as f32 / total.clone() as f32 * 100.0).round() as i32,
+                (*used as f32 / (1024.0 * 1024.0 * 1024.0)).round() as i32,
+                (*total as f32 / (1024.0 * 1024.0 * 1024.0)).round() as i32,
+                (*used as f32 / *total as f32 * 100.0).round() as i32,
             ),
             ProbeValue::Battery(battery) => battery.to_string(),
             ProbeValue::PowerAdapter(power_adapter) => power_adapter.to_string(),
@@ -242,7 +241,7 @@ pub fn network_readout() -> &'static NetworkReadout {
 /// Return a list of metrics to be probed from config
 /// Note: ProbeValue that errors out will have placeholder values (e.g. "N/A")
 ///       This is different from some other fetch tools like neofetch, which omits the result entirely
-pub fn probe_metrics(config: &ProbeConfig) -> ProbeList {
+pub fn probe_metrics(config: &ProbeConfig) -> (String, ProbeResultFunction) {
     use libmacchina::traits::BatteryReadout as _;
     use libmacchina::traits::GeneralReadout as _;
     use libmacchina::traits::KernelReadout as _;
@@ -251,54 +250,43 @@ pub fn probe_metrics(config: &ProbeConfig) -> ProbeList {
     use libmacchina::traits::PackageReadout as _;
     use libmacchina::traits::ProductReadout as _;
 
-    let mut metrics: Vec<(String, Box<dyn Fn() -> ProbeResult>)> = Vec::new();
-
-    if let Some(os) = &config.os {
-        metrics.push((
-            os.clone(),
+    match config {
+        ProbeConfig::OS(label) => (
+            label.clone(),
             Box::new(|| {
                 Ok(ProbeResultValue::Single(ProbeValue::OS(
                     general_readout().os_name()?,
                 )))
-                // TODO: Doesn't work for all platforms ^^
             }),
-        ));
-    }
-    if let Some(model) = &config.model {
-        metrics.push((
-            model.clone(),
+        ),
+        ProbeConfig::Model(label) => (
+            label.clone(),
             Box::new(|| {
                 Ok(ProbeResultValue::Single(ProbeValue::Model(
                     product_readout().vendor()?,
                     product_readout().product()?,
                 )))
             }),
-        ));
-    }
-    if let Some(kernel) = &config.kernel {
-        metrics.push((
-            kernel.clone(),
+        ),
+        ProbeConfig::Kernel(label) => (
+            label.clone(),
             Box::new(|| {
                 Ok(ProbeResultValue::Single(ProbeValue::Kernel(
                     kernel_readout().pretty_kernel()?,
                 )))
             }),
-        ));
-    }
-    if let Some(uptime) = &config.uptime {
-        metrics.push((
-            uptime.clone(),
+        ),
+        ProbeConfig::Uptime(label) => (
+            label.clone(),
             Box::new(|| {
                 Ok(ProbeResultValue::Single(ProbeValue::Uptime(
                     general_readout().uptime()?,
                 )))
             }),
-        ));
-    }
-    if let Some(packages) = &config.packages {
+        ),
         // TODO: Test libmacchina packages() function for package manager hanging issues
-        metrics.push((
-            packages.clone(),
+        ProbeConfig::Packages(label) => (
+            label.clone(),
             Box::new(|| {
                 Ok(ProbeResultValue::Multiple(
                     package_readout()
@@ -308,188 +296,144 @@ pub fn probe_metrics(config: &ProbeConfig) -> ProbeList {
                         .collect::<Vec<_>>(),
                 ))
             }),
-        ));
-    }
-    if let Some(shell) = &config.shell {
-        metrics.push((
-            shell.clone(),
+        ),
+        ProbeConfig::Shell(label) => (
+            label.clone(),
             Box::new(|| {
                 Ok(ProbeResultValue::Single(ProbeValue::Shell(
                     general_readout().shell(ShellFormat::Relative, ShellKind::Current)?,
                 )))
             }),
-        ));
-    }
-    if let Some(editor) = &config.editor {
-        // TODO: Implement editor readout
-        metrics.push((editor.clone(), Box::new(|| Err(ProbeError::Unimplemented))));
-    }
-    if let Some(resolution) = &config.resolution {
-        metrics.push((
-            resolution.clone(),
+        ),
+        ProbeConfig::Editor(label) => (label.clone(), Box::new(|| Err(ProbeError::Unimplemented))), // TODO
+        ProbeConfig::Resolution(label) => (
+            label.clone(),
             Box::new(|| {
                 Ok(ProbeResultValue::Single(ProbeValue::Resolution(
                     general_readout().resolution()?,
                 )))
             }),
-        ));
-    }
-    if let Some(de) = &config.de {
-        metrics.push((
-            de.clone(),
+        ),
+        ProbeConfig::DE(label) => (
+            label.clone(),
             Box::new(|| {
                 Ok(ProbeResultValue::Single(ProbeValue::DE(
                     general_readout().desktop_environment()?,
                 )))
             }),
-        ));
-    }
-    if let Some(wm) = &config.wm {
-        metrics.push((
-            wm.clone(),
+        ),
+        ProbeConfig::WM(label) => (
+            label.clone(),
             Box::new(|| {
                 Ok(ProbeResultValue::Single(ProbeValue::WM(
                     general_readout().window_manager()?,
                 )))
             }),
-        ))
-    }
-    if let Some(wm_theme) = &config.wm_theme {
-        metrics.push((
-            wm_theme.clone(),
+        ),
+        ProbeConfig::WMTheme(label) => (
+            label.clone(),
             Box::new(|| {
                 Ok(ProbeResultValue::Single(ProbeValue::WMTheme(
-                    "".to_string(),
+                    "".to_string(), // TODO
                 )))
-            }), // TODO
-        ));
-    }
-    if let Some(theme) = &config.theme {
-        metrics.push((
-            theme.clone(),
+            }),
+        ),
+
+        ProbeConfig::Theme(label) => (
+            label.clone(),
             Box::new(|| Ok(ProbeResultValue::Single(ProbeValue::Theme("".to_string())))), // TODO
-        ));
-    }
-    if let Some(icons) = &config.icons {
-        metrics.push((
-            icons.clone(),
+        ),
+        ProbeConfig::Icons(label) => (
+            label.clone(),
             Box::new(|| Ok(ProbeResultValue::Single(ProbeValue::Icons("".to_string())))), // TODO
-        ));
-    }
-    if let Some(cursor) = &config.cursor {
-        metrics.push((
-            cursor.clone(),
+        ),
+        ProbeConfig::Cursor(label) => (
+            label.clone(),
             Box::new(|| Ok(ProbeResultValue::Single(ProbeValue::Cursor("".to_string())))), // TODO
-        ));
-    }
-    if let Some(terminal) = &config.terminal {
-        metrics.push((
-            terminal.clone(),
+        ),
+        ProbeConfig::Terminal(label) => (
+            label.clone(),
             Box::new(|| {
                 Ok(ProbeResultValue::Single(ProbeValue::Terminal(
                     general_readout().terminal()?,
                 )))
             }),
-        ));
-    }
-    if let Some(terminal_font) = &config.terminal_font {
-        metrics.push((
-            terminal_font.clone(),
+        ),
+        ProbeConfig::TerminalFont(label) => (
+            label.clone(),
             Box::new(|| {
                 Ok(ProbeResultValue::Single(ProbeValue::TerminalFont(
-                    "".to_string(),
+                    "".to_string(), // TODO
                 )))
-            }), // TODO
-        ));
-    }
-    if let Some(cpu) = &config.cpu {
-        metrics.push((
-            cpu.clone(),
+            }),
+        ),
+        ProbeConfig::CPU(label) => (
+            label.clone(),
             Box::new(|| {
                 Ok(ProbeResultValue::Single(ProbeValue::CPU(
                     general_readout().cpu_model_name()?,
                 )))
             }),
-        ));
-    }
-    if let Some(gpu) = &config.gpu {
-        metrics.push((
-            gpu.clone(),
+        ),
+        ProbeConfig::GPU(label) => (
+            label.clone(),
             Box::new(|| {
                 Ok(ProbeResultValue::Multiple(
                     general_readout()
                         .gpus()?
                         .into_iter()
-                        .map(|name| ProbeValue::GPU(name))
+                        .map(ProbeValue::GPU)
                         .collect::<Vec<_>>(),
                 ))
             }),
-        ))
-    }
-    if let Some(memory) = &config.memory {
-        metrics.push((
-            memory.clone(),
+        ),
+        ProbeConfig::Memory(label) => (
+            label.clone(),
             Box::new(|| {
                 Ok(ProbeResultValue::Single(ProbeValue::Memory(
                     memory_readout().used()?,
                     memory_readout().total()?,
                 )))
             }),
-        ));
-    }
-    if let Some(network) = &config.network {
-        // TODO: Implement
-        metrics.push((
-            network.clone(),
+        ),
+        ProbeConfig::Network(label) => (
+            label.clone(),
             Box::new(|| {
                 Ok(ProbeResultValue::Single(ProbeValue::Network(
-                    "".to_string(),
+                    "".to_string(), // TODO
                 )))
             }),
-        ));
-    }
-    if let Some(bluetooth) = &config.bluetooth {
-        // TODO: Implement
-        metrics.push((
-            bluetooth.clone(),
+        ),
+        ProbeConfig::Bluetooth(label) => (
+            label.clone(),
             Box::new(|| {
                 Ok(ProbeResultValue::Single(ProbeValue::Bluetooth(
-                    "".to_string(),
+                    "".to_string(), // TODO
                 )))
             }),
-        ));
-    }
-    if let Some(bios) = &config.bios {
-        // TODO: Implement
-        metrics.push((
-            bios.clone(),
+        ),
+        ProbeConfig::BIOS(label) => (
+            label.clone(),
             Box::new(|| Ok(ProbeResultValue::Single(ProbeValue::BIOS("".to_string())))),
-        ));
-    }
-    if let Some(gpu_driver) = &config.gpu_driver {
-        // TODO: Implement
-        metrics.push((
-            gpu_driver.clone(),
+        ),
+        ProbeConfig::GPUDriver(label) => (
+            label.clone(),
             Box::new(|| {
                 Ok(ProbeResultValue::Single(ProbeValue::GPUDriver(
-                    "".to_string(),
+                    "".to_string(), // TODO
                 )))
             }),
-        ));
-    }
-    if let Some(cpu_usage) = &config.cpu_usage {
-        metrics.push((
-            cpu_usage.clone(),
+        ),
+        ProbeConfig::CPUUsage(label) => (
+            label.clone(),
             Box::new(|| {
                 Ok(ProbeResultValue::Single(ProbeValue::CPUUsage(
                     general_readout().cpu_usage()?,
                 )))
             }),
-        ));
-    }
-    if let Some(disk) = &config.disk {
-        metrics.push((
-            disk.clone(),
+        ),
+        ProbeConfig::Disk(label) => (
+            label.clone(),
             Box::new(|| {
                 let disk_readout = general_readout().disk_space()?;
                 Ok(ProbeResultValue::Single(ProbeValue::Disk(
@@ -497,22 +441,18 @@ pub fn probe_metrics(config: &ProbeConfig) -> ProbeList {
                     disk_readout.1,
                 )))
             }),
-        ));
-    }
-    if let Some(battery) = &config.battery {
-        metrics.push((
-            battery.clone(),
+        ),
+        ProbeConfig::Battery(label) => (
+            label.clone(),
             Box::new(|| {
                 Ok(ProbeResultValue::Single(ProbeValue::Battery(
                     battery_readout().percentage()?,
                 )))
             }),
-        ));
-    }
-    if let Some(power_adapter) = &config.power_adapter {
+        ),
         // TODO: Check if it's correct and matches neofetch
-        metrics.push((
-            power_adapter.clone(),
+        ProbeConfig::PowerAdapter(label) => (
+            label.clone(),
             Box::new(|| {
                 Ok(ProbeResultValue::Single(ProbeValue::PowerAdapter(
                     match battery_readout().status()? {
@@ -521,103 +461,68 @@ pub fn probe_metrics(config: &ProbeConfig) -> ProbeList {
                     },
                 )))
             }),
-        ));
-    }
-    if let Some(font) = &config.font {
-        // TODO: Implement
-        metrics.push((
-            font.clone(),
-            Box::new(|| Ok(ProbeResultValue::Single(ProbeValue::Font("".to_string())))),
-        ));
-    }
-    if let Some(song) = &config.song {
-        // TODO: Implement
-        metrics.push((
-            song.clone(),
-            Box::new(|| Ok(ProbeResultValue::Single(ProbeValue::Song("".to_string())))),
-        ));
-    }
-    if let Some(local_ip) = &config.local_ip {
-        // TODO: Implement
-        metrics.push((
-            local_ip.clone(),
-            Box::new(|| Ok(ProbeResultValue::Single(ProbeValue::LocalIP(vec![])))),
-        ));
-    }
-    if let Some(public_ip) = &config.public_ip {
-        // TODO: Implement
-        metrics.push((
-            public_ip.clone(),
+        ),
+        ProbeConfig::Font(label) => (
+            label.clone(),
+            Box::new(|| Ok(ProbeResultValue::Single(ProbeValue::Font("".to_string())))), // TODO
+        ),
+        ProbeConfig::Song(label) => (
+            label.clone(),
+            Box::new(|| Ok(ProbeResultValue::Single(ProbeValue::Song("".to_string())))), // TODO
+        ),
+        ProbeConfig::LocalIP(label) => (
+            label.clone(),
+            Box::new(|| Ok(ProbeResultValue::Single(ProbeValue::LocalIP(vec![])))), // TODO
+        ),
+        ProbeConfig::PublicIP(label) => (
+            label.clone(),
             Box::new(|| {
                 Ok(ProbeResultValue::Single(ProbeValue::PublicIP(
-                    "".to_string(),
+                    "".to_string(), // TODO
                 )))
             }),
-        ));
-    }
-    if let Some(users) = &config.users {
-        // TODO: Implement
-        metrics.push((
-            users.clone(),
-            Box::new(|| Ok(ProbeResultValue::Single(ProbeValue::Users(0)))),
-        ));
-    }
-    if let Some(locale) = &config.locale {
-        // TODO: Implement
-        metrics.push((
-            locale.clone(),
-            Box::new(|| Ok(ProbeResultValue::Single(ProbeValue::Locale("".to_string())))),
-        ));
-    }
-    if let Some(java) = &config.java {
-        // TODO: Implement
-        metrics.push((
-            java.clone(),
+        ),
+        ProbeConfig::Users(label) => (
+            label.clone(),
+            Box::new(|| Ok(ProbeResultValue::Single(ProbeValue::Users(0)))), // TODO
+        ),
+        ProbeConfig::Locale(label) => (
+            label.clone(),
+            Box::new(|| Ok(ProbeResultValue::Single(ProbeValue::Locale("".to_string())))), // TODO
+        ),
+        ProbeConfig::Java(label) => (
+            label.clone(),
             Box::new(|| {
                 Ok(ProbeResultValue::Single(ProbeValue::Java(
-                    "N/A".to_string(),
+                    "N/A".to_string(), // TODO
                 )))
             }),
-        ));
-    }
-    if let Some(python) = &config.python {
-        // TODO: Implement
-        metrics.push((
-            python.clone(),
+        ),
+        ProbeConfig::Python(label) => (
+            label.clone(),
             Box::new(|| {
                 Ok(ProbeResultValue::Single(ProbeValue::Python(
-                    "N/A".to_string(),
+                    "N/A".to_string(), // TODO
                 )))
             }),
-        ));
-    }
-    if let Some(node) = &config.node {
-        // TODO: Implement
-        metrics.push((
-            node.clone(),
+        ),
+        ProbeConfig::Node(label) => (
+            label.clone(),
             Box::new(|| {
                 Ok(ProbeResultValue::Single(ProbeValue::Node(
-                    "N/A".to_string(),
+                    "N/A".to_string(), // TODO
                 )))
             }),
-        ));
-    }
-    if let Some(rust) = &config.rust {
-        // TODO: Implement
-        metrics.push((
-            rust.clone(),
+        ),
+        ProbeConfig::Rust(label) => (
+            label.clone(),
             Box::new(|| {
                 Ok(ProbeResultValue::Single(ProbeValue::Rust(
-                    "N/A".to_string(),
+                    "N/A".to_string(), // TODO
                 )))
             }),
-        ));
+        ),
     }
-
-    // TODO: Implement for everything in ProbeConfig
-    // TODO: Then, make sure all capabilities in libmacchina are used
-
-    metrics
 }
 
 pub enum ProbeResultValue {
@@ -638,4 +543,5 @@ impl From<Vec<ProbeValue>> for ProbeResultValue {
 }
 
 pub type ProbeResult = Result<ProbeResultValue, ProbeError>;
-pub type ProbeList = Vec<(String, impl Fn() -> ProbeResult)>;
+pub type ProbeResultFunction = Box<dyn Fn() -> ProbeResult>;
+pub type ProbeList = Vec<(String, ProbeResultFunction)>;

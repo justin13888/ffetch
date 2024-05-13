@@ -11,6 +11,12 @@ use super::RendererError;
 
 pub struct NeofetchRenderer;
 
+impl Default for NeofetchRenderer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl NeofetchRenderer {
     pub fn new() -> Self {
         Self
@@ -68,6 +74,9 @@ impl NeofetchRenderer {
         }
 
         // TODO: Render neofetch colour block below
+        // if config.col {
+        //     todo!()
+        // }
 
         Ok(())
     }
