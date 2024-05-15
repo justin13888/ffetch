@@ -77,6 +77,8 @@ impl MacchinaRenderer {
         for art in art_iter {
             println!("{}", style(art).blue());
         }
+        
+        println!();
 
         Ok(())
     }
