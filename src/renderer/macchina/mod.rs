@@ -5,9 +5,13 @@ use crate::{
     colour::primary,
     config::MacchinaRendererConfig,
     probe::{general_readout, ProbeList, ProbeResultValue, ProbeValue},
+    renderer::macchina::ascii::ASCII_ART_FILLER,
 };
 
 use super::RendererError;
+
+mod ascii;
+use ascii::ASCII_ART;
 
 pub struct MacchinaRenderer {
     config: MacchinaRendererConfig,
@@ -39,8 +43,10 @@ impl MacchinaRenderer {
         println!();
         // TODO: Implement ASCII macchina logos
 
+        let mut art_iter = ASCII_ART.iter();
+
         for (title, probe) in probe_list {
-            let results = match probe() {
+            let results: Vec<String> = match probe() {
                 Ok(result) => match result {
                     ProbeResultValue::Single(value) => vec![Self::probe_config_to_string(&value)],
                     ProbeResultValue::Multiple(values) => values
@@ -55,12 +61,21 @@ impl MacchinaRenderer {
             };
             results.into_iter().for_each(|result| {
                 println!(
-                    "{:title_width$}{}  {}",
+                    "{}    {:title_width$}{}  {}",
+                    match art_iter.next() {
+                        Some(art) => style(art).blue().to_string(),
+                        None => style(ASCII_ART_FILLER).blue().to_string(),
+                    },
                     style(title.clone()).blue(),
                     style("-").yellow(),
                     result
                 );
             });
+        }
+
+        // Print remaining ASCII art
+        for art in art_iter {
+            println!("{}", style(art).blue());
         }
 
         Ok(())

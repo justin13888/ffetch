@@ -15,7 +15,9 @@ pub mod config;
 pub mod probe;
 pub mod renderer;
 
-/// TODO: Support adjusting configs via CLI.
+
+// TODO: Support adjusting configs via CLI.
+// TODO: Include 'libmacchina' version in version command
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 pub struct Args {
