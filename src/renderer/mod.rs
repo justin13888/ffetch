@@ -1,6 +1,7 @@
 use libmacchina::traits::ReadoutError;
 use thiserror::Error;
 
+pub mod macchina;
 pub mod neofetch;
 
 #[derive(Error, Debug)]

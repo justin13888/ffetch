@@ -65,7 +65,7 @@ impl NeofetchRenderer {
                 },
                 Err(err) => {
                     debug!("Error while probing {}: {}", title, err);
-                    vec!["N/A".to_string()]
+                    continue;
                 }
             };
             results.into_iter().for_each(|result| {

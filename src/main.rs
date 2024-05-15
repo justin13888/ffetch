@@ -5,11 +5,9 @@ compile_error!("This crate is only supported on Linux, macOS, and Windows.");
 use clap::Parser;
 use tracing::{debug, Level};
 
-
 use crate::{
-    config::Config,
-    probe::{general_readout, probe_metrics},
-    renderer::neofetch::NeofetchRenderer,
+    config::{Config, RendererConfig},
+    renderer::{macchina::MacchinaRenderer, neofetch::NeofetchRenderer},
 };
 
 pub mod colour;
@@ -65,26 +63,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
     debug!("Config: {:?}", config);
+    // TODO: REMOVE LATER
+    let config = Config::default_macchina();
 
     // TODO: Read config and determine render output
     let probe_list = config
         .probes
         .into_iter()
-        .map(|p| probe_metrics(&p))
+        .map(|p| p.get_funcs())
         .collect::<Vec<_>>();
     match config.renderer {
-        config::RendererConfig::Neofetch => {
+        RendererConfig::Neofetch => {
             NeofetchRenderer::new().draw(&config.neofetch, &probe_list)?;
         }
+        RendererConfig::Macchina => {
+            MacchinaRenderer::new().draw(&config.macchina, &probe_list)?;
+        }
     };
-
-    use libmacchina::traits::GeneralReadout as _;
-    println!(
-        "{}",
-        general_readout()
-            .distribution()
-            .unwrap_or("N/A".to_string())
-    );
 
     Ok(())
 }

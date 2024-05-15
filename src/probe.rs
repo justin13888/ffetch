@@ -8,12 +8,58 @@ use libmacchina::{
     BatteryReadout, GeneralReadout, KernelReadout, MemoryReadout, NetworkReadout, PackageReadout,
     ProductReadout,
 };
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::config::ProbeConfig;
 
+pub fn battery_readout() -> &'static BatteryReadout {
+    use libmacchina::traits::BatteryReadout as _;
+    static COMPUTATION: OnceLock<BatteryReadout> = OnceLock::new();
+    COMPUTATION.get_or_init(BatteryReadout::new)
+}
+
+pub fn kernel_readout() -> &'static KernelReadout {
+    use libmacchina::traits::KernelReadout as _;
+    static COMPUTATION: OnceLock<KernelReadout> = OnceLock::new();
+    COMPUTATION.get_or_init(KernelReadout::new)
+}
+
+pub fn memory_readout() -> &'static MemoryReadout {
+    use libmacchina::traits::MemoryReadout as _;
+    static COMPUTATION: OnceLock<MemoryReadout> = OnceLock::new();
+    COMPUTATION.get_or_init(MemoryReadout::new)
+}
+
+pub fn general_readout() -> &'static GeneralReadout {
+    use libmacchina::traits::GeneralReadout as _;
+    static COMPUTATION: OnceLock<GeneralReadout> = OnceLock::new();
+    COMPUTATION.get_or_init(GeneralReadout::new)
+}
+
+pub fn product_readout() -> &'static ProductReadout {
+    use libmacchina::traits::ProductReadout as _;
+    static COMPUTATION: OnceLock<ProductReadout> = OnceLock::new();
+    COMPUTATION.get_or_init(ProductReadout::new)
+}
+
+pub fn package_readout() -> &'static PackageReadout {
+    use libmacchina::traits::PackageReadout as _;
+    static COMPUTATION: OnceLock<PackageReadout> = OnceLock::new();
+    COMPUTATION.get_or_init(PackageReadout::new)
+}
+
+pub fn network_readout() -> &'static NetworkReadout {
+    use libmacchina::traits::NetworkReadout as _;
+    static COMPUTATION: OnceLock<NetworkReadout> = OnceLock::new();
+    COMPUTATION.get_or_init(NetworkReadout::new)
+}
+
 // TODO: Complete the rest of doc comments for this enum vv
 pub enum ProbeValue {
+    /// Hostname (username@hostname)
+    /// e.g. ("justin13888", "ffetch")
+    Host(String, String),
     /// e.g. "Ubuntu 22.04.4 LTS x86_64"
     OS(String),
     // (Vendor, Product)
@@ -94,6 +140,7 @@ pub enum ProbeValue {
 impl ToString for ProbeValue {
     fn to_string(&self) -> String {
         match self {
+            ProbeValue::Host(username, hostname) => format!("{}@{}", username, hostname),
             ProbeValue::OS(os) => os.to_string(),
             ProbeValue::Model(vendor, product) => format!("{} {}", vendor, product),
             ProbeValue::Kernel(kernel) => kernel.to_string(),
@@ -130,7 +177,7 @@ impl ToString for ProbeValue {
             ProbeValue::CPU(cpu) => cpu.to_string(),
             ProbeValue::GPU(gpu) => gpu.to_string(),
             ProbeValue::Memory(free, total) => format!(
-                "{} MiB / {} MiB",
+                "{} GiB / {} GiB",
                 (*free as f32 / (1024.0 * 1024.0)).round() as i32,
                 (*total as f32 / (1024.0 * 1024.0)).round() as i32,
             ),
@@ -138,7 +185,7 @@ impl ToString for ProbeValue {
             ProbeValue::Bluetooth(bluetooth) => bluetooth.to_string(),
             ProbeValue::BIOS(bios) => bios.to_string(),
             ProbeValue::GPUDriver(gpu_driver) => gpu_driver.to_string(),
-            ProbeValue::CPUUsage(cpu_usage) => cpu_usage.to_string(),
+            ProbeValue::CPUUsage(cpu_usage) => format!("{}%", cpu_usage),
             ProbeValue::Disk(used, total) => format!(
                 "{} G / {} G ({}%)",
                 (*used as f32 / (1024.0 * 1024.0 * 1024.0)).round() as i32,
@@ -196,98 +243,46 @@ impl From<ReadoutError> for ProbeError {
     }
 }
 
-pub fn battery_readout() -> &'static BatteryReadout {
-    use libmacchina::traits::BatteryReadout as _;
-    static COMPUTATION: OnceLock<BatteryReadout> = OnceLock::new();
-    COMPUTATION.get_or_init(BatteryReadout::new)
-}
+impl From<ProbeType> for ProbeResultFunction {
+    fn from(probe_type: ProbeType) -> Self {
+        use libmacchina::traits::BatteryReadout as _;
+        use libmacchina::traits::GeneralReadout as _;
+        use libmacchina::traits::KernelReadout as _;
+        use libmacchina::traits::MemoryReadout as _;
+        use libmacchina::traits::NetworkReadout as _;
+        use libmacchina::traits::PackageReadout as _;
+        use libmacchina::traits::ProductReadout as _;
 
-pub fn kernel_readout() -> &'static KernelReadout {
-    use libmacchina::traits::KernelReadout as _;
-    static COMPUTATION: OnceLock<KernelReadout> = OnceLock::new();
-    COMPUTATION.get_or_init(KernelReadout::new)
-}
-
-pub fn memory_readout() -> &'static MemoryReadout {
-    use libmacchina::traits::MemoryReadout as _;
-    static COMPUTATION: OnceLock<MemoryReadout> = OnceLock::new();
-    COMPUTATION.get_or_init(MemoryReadout::new)
-}
-
-pub fn general_readout() -> &'static GeneralReadout {
-    use libmacchina::traits::GeneralReadout as _;
-    static COMPUTATION: OnceLock<GeneralReadout> = OnceLock::new();
-    COMPUTATION.get_or_init(GeneralReadout::new)
-}
-
-pub fn product_readout() -> &'static ProductReadout {
-    use libmacchina::traits::ProductReadout as _;
-    static COMPUTATION: OnceLock<ProductReadout> = OnceLock::new();
-    COMPUTATION.get_or_init(ProductReadout::new)
-}
-
-pub fn package_readout() -> &'static PackageReadout {
-    use libmacchina::traits::PackageReadout as _;
-    static COMPUTATION: OnceLock<PackageReadout> = OnceLock::new();
-    COMPUTATION.get_or_init(PackageReadout::new)
-}
-
-pub fn network_readout() -> &'static NetworkReadout {
-    use libmacchina::traits::NetworkReadout as _;
-    static COMPUTATION: OnceLock<NetworkReadout> = OnceLock::new();
-    COMPUTATION.get_or_init(NetworkReadout::new)
-}
-
-/// Return a list of metrics to be probed from config
-/// Note: ProbeValue that errors out will have placeholder values (e.g. "N/A")
-///       This is different from some other fetch tools like neofetch, which omits the result entirely
-pub fn probe_metrics(config: &ProbeConfig) -> (String, ProbeResultFunction) {
-    use libmacchina::traits::BatteryReadout as _;
-    use libmacchina::traits::GeneralReadout as _;
-    use libmacchina::traits::KernelReadout as _;
-    use libmacchina::traits::MemoryReadout as _;
-    use libmacchina::traits::NetworkReadout as _;
-    use libmacchina::traits::PackageReadout as _;
-    use libmacchina::traits::ProductReadout as _;
-
-    match config {
-        ProbeConfig::OS(label) => (
-            label.clone(),
-            Box::new(|| {
+        match probe_type {
+            ProbeType::Host => Box::new(|| {
+                Ok(ProbeResultValue::Single(ProbeValue::Host(
+                    general_readout().username()?,
+                    general_readout().hostname()?,
+                )))
+            }),
+            ProbeType::OS => Box::new(|| {
                 Ok(ProbeResultValue::Single(ProbeValue::OS(
                     general_readout().os_name()?,
                 )))
             }),
-        ),
-        ProbeConfig::Model(label) => (
-            label.clone(),
-            Box::new(|| {
+            ProbeType::Model => Box::new(|| {
                 Ok(ProbeResultValue::Single(ProbeValue::Model(
                     product_readout().vendor()?,
                     product_readout().product()?,
                 )))
             }),
-        ),
-        ProbeConfig::Kernel(label) => (
-            label.clone(),
-            Box::new(|| {
+            ProbeType::Kernel => Box::new(|| {
                 Ok(ProbeResultValue::Single(ProbeValue::Kernel(
                     kernel_readout().pretty_kernel()?,
                 )))
             }),
-        ),
-        ProbeConfig::Uptime(label) => (
-            label.clone(),
-            Box::new(|| {
+            ProbeType::Uptime => Box::new(|| {
                 Ok(ProbeResultValue::Single(ProbeValue::Uptime(
                     general_readout().uptime()?,
                 )))
             }),
-        ),
-        // TODO: Test libmacchina packages() function for package manager hanging issues
-        ProbeConfig::Packages(label) => (
-            label.clone(),
-            Box::new(|| {
+            // TODO: Test libmacchina packages() function for package manager hanging issues
+            ProbeType::Packages => Box::new(|| {
                 Ok(ProbeResultValue::Multiple(
                     package_readout()
                         .count_pkgs()
@@ -296,88 +291,61 @@ pub fn probe_metrics(config: &ProbeConfig) -> (String, ProbeResultFunction) {
                         .collect::<Vec<_>>(),
                 ))
             }),
-        ),
-        ProbeConfig::Shell(label) => (
-            label.clone(),
-            Box::new(|| {
+            ProbeType::Shell => Box::new(|| {
                 Ok(ProbeResultValue::Single(ProbeValue::Shell(
-                    general_readout().shell(ShellFormat::Relative, ShellKind::Current)?,
+                    general_readout()
+                        .shell(ShellFormat::Relative, ShellKind::Current)?
+                        .trim()
+                        .to_string(),
                 )))
             }),
-        ),
-        ProbeConfig::Editor(label) => (label.clone(), Box::new(|| Err(ProbeError::Unimplemented))), // TODO
-        ProbeConfig::Resolution(label) => (
-            label.clone(),
-            Box::new(|| {
+            ProbeType::Editor => Box::new(|| Err(ProbeError::Unimplemented)), // TODO
+            ProbeType::Resolution => Box::new(|| {
                 Ok(ProbeResultValue::Single(ProbeValue::Resolution(
                     general_readout().resolution()?,
                 )))
             }),
-        ),
-        ProbeConfig::DE(label) => (
-            label.clone(),
-            Box::new(|| {
+            ProbeType::DE => Box::new(|| {
                 Ok(ProbeResultValue::Single(ProbeValue::DE(
                     general_readout().desktop_environment()?,
                 )))
             }),
-        ),
-        ProbeConfig::WM(label) => (
-            label.clone(),
-            Box::new(|| {
+            ProbeType::WM => Box::new(|| {
                 Ok(ProbeResultValue::Single(ProbeValue::WM(
                     general_readout().window_manager()?,
                 )))
             }),
-        ),
-        ProbeConfig::WMTheme(label) => (
-            label.clone(),
-            Box::new(|| {
+            ProbeType::WMTheme => Box::new(|| {
                 Ok(ProbeResultValue::Single(ProbeValue::WMTheme(
                     "".to_string(), // TODO
                 )))
             }),
-        ),
 
-        ProbeConfig::Theme(label) => (
-            label.clone(),
-            Box::new(|| Ok(ProbeResultValue::Single(ProbeValue::Theme("".to_string())))), // TODO
-        ),
-        ProbeConfig::Icons(label) => (
-            label.clone(),
-            Box::new(|| Ok(ProbeResultValue::Single(ProbeValue::Icons("".to_string())))), // TODO
-        ),
-        ProbeConfig::Cursor(label) => (
-            label.clone(),
-            Box::new(|| Ok(ProbeResultValue::Single(ProbeValue::Cursor("".to_string())))), // TODO
-        ),
-        ProbeConfig::Terminal(label) => (
-            label.clone(),
-            Box::new(|| {
+            ProbeType::Theme => {
+                Box::new(|| Ok(ProbeResultValue::Single(ProbeValue::Theme("".to_string()))))
+            } // TODO
+            ProbeType::Icons => {
+                Box::new(|| Ok(ProbeResultValue::Single(ProbeValue::Icons("".to_string()))))
+            } // TODO
+            ProbeType::Cursor => {
+                Box::new(|| Ok(ProbeResultValue::Single(ProbeValue::Cursor("".to_string()))))
+            } // TODO
+            ProbeType::Terminal => Box::new(|| {
                 Ok(ProbeResultValue::Single(ProbeValue::Terminal(
-                    general_readout().terminal()?,
+                    general_readout().terminal()?.trim().to_string(),
                 )))
             }),
-        ),
-        ProbeConfig::TerminalFont(label) => (
-            label.clone(),
-            Box::new(|| {
+            ProbeType::TerminalFont => Box::new(|| {
                 Ok(ProbeResultValue::Single(ProbeValue::TerminalFont(
                     "".to_string(), // TODO
                 )))
             }),
-        ),
-        ProbeConfig::CPU(label) => (
-            label.clone(),
-            Box::new(|| {
+            ProbeType::CPU => Box::new(|| {
                 Ok(ProbeResultValue::Single(ProbeValue::CPU(
                     general_readout().cpu_model_name()?,
                 )))
             }),
-        ),
-        ProbeConfig::GPU(label) => (
-            label.clone(),
-            Box::new(|| {
+            ProbeType::GPU => Box::new(|| {
                 Ok(ProbeResultValue::Multiple(
                     general_readout()
                         .gpus()?
@@ -386,74 +354,49 @@ pub fn probe_metrics(config: &ProbeConfig) -> (String, ProbeResultFunction) {
                         .collect::<Vec<_>>(),
                 ))
             }),
-        ),
-        ProbeConfig::Memory(label) => (
-            label.clone(),
-            Box::new(|| {
+            ProbeType::Memory => Box::new(|| {
                 Ok(ProbeResultValue::Single(ProbeValue::Memory(
                     memory_readout().used()?,
                     memory_readout().total()?,
                 )))
             }),
-        ),
-        ProbeConfig::Network(label) => (
-            label.clone(),
-            Box::new(|| {
+            ProbeType::Network => Box::new(|| {
                 Ok(ProbeResultValue::Single(ProbeValue::Network(
                     "".to_string(), // TODO
                 )))
             }),
-        ),
-        ProbeConfig::Bluetooth(label) => (
-            label.clone(),
-            Box::new(|| {
+            ProbeType::Bluetooth => Box::new(|| {
                 Ok(ProbeResultValue::Single(ProbeValue::Bluetooth(
                     "".to_string(), // TODO
                 )))
             }),
-        ),
-        ProbeConfig::BIOS(label) => (
-            label.clone(),
-            Box::new(|| Ok(ProbeResultValue::Single(ProbeValue::BIOS("".to_string())))),
-        ),
-        ProbeConfig::GPUDriver(label) => (
-            label.clone(),
-            Box::new(|| {
+            ProbeType::BIOS => {
+                Box::new(|| Ok(ProbeResultValue::Single(ProbeValue::BIOS("".to_string()))))
+            }
+            ProbeType::GPUDriver => Box::new(|| {
                 Ok(ProbeResultValue::Single(ProbeValue::GPUDriver(
                     "".to_string(), // TODO
                 )))
             }),
-        ),
-        ProbeConfig::CPUUsage(label) => (
-            label.clone(),
-            Box::new(|| {
+            ProbeType::CPUUsage => Box::new(|| {
                 Ok(ProbeResultValue::Single(ProbeValue::CPUUsage(
                     general_readout().cpu_usage()?,
                 )))
             }),
-        ),
-        ProbeConfig::Disk(label) => (
-            label.clone(),
-            Box::new(|| {
+            ProbeType::Disk => Box::new(|| {
                 let disk_readout = general_readout().disk_space()?;
                 Ok(ProbeResultValue::Single(ProbeValue::Disk(
                     disk_readout.0,
                     disk_readout.1,
                 )))
             }),
-        ),
-        ProbeConfig::Battery(label) => (
-            label.clone(),
-            Box::new(|| {
+            ProbeType::Battery => Box::new(|| {
                 Ok(ProbeResultValue::Single(ProbeValue::Battery(
                     battery_readout().percentage()?,
                 )))
             }),
-        ),
-        // TODO: Check if it's correct and matches neofetch
-        ProbeConfig::PowerAdapter(label) => (
-            label.clone(),
-            Box::new(|| {
+            // TODO: Check if it's correct and matches neofetch
+            ProbeType::PowerAdapter => Box::new(|| {
                 Ok(ProbeResultValue::Single(ProbeValue::PowerAdapter(
                     match battery_readout().status()? {
                         BatteryState::Charging => "Charging".to_string(),
@@ -461,68 +404,92 @@ pub fn probe_metrics(config: &ProbeConfig) -> (String, ProbeResultFunction) {
                     },
                 )))
             }),
-        ),
-        ProbeConfig::Font(label) => (
-            label.clone(),
-            Box::new(|| Ok(ProbeResultValue::Single(ProbeValue::Font("".to_string())))), // TODO
-        ),
-        ProbeConfig::Song(label) => (
-            label.clone(),
-            Box::new(|| Ok(ProbeResultValue::Single(ProbeValue::Song("".to_string())))), // TODO
-        ),
-        ProbeConfig::LocalIP(label) => (
-            label.clone(),
-            Box::new(|| Ok(ProbeResultValue::Single(ProbeValue::LocalIP(vec![])))), // TODO
-        ),
-        ProbeConfig::PublicIP(label) => (
-            label.clone(),
-            Box::new(|| {
+            ProbeType::Font => {
+                Box::new(|| Ok(ProbeResultValue::Single(ProbeValue::Font("".to_string()))))
+            } // TODO
+            ProbeType::Song => {
+                Box::new(|| Ok(ProbeResultValue::Single(ProbeValue::Song("".to_string()))))
+            } // TODO
+            ProbeType::LocalIP => {
+                Box::new(|| Ok(ProbeResultValue::Single(ProbeValue::LocalIP(vec![]))))
+            } // TODO
+            ProbeType::PublicIP => Box::new(|| {
                 Ok(ProbeResultValue::Single(ProbeValue::PublicIP(
                     "".to_string(), // TODO
                 )))
             }),
-        ),
-        ProbeConfig::Users(label) => (
-            label.clone(),
-            Box::new(|| Ok(ProbeResultValue::Single(ProbeValue::Users(0)))), // TODO
-        ),
-        ProbeConfig::Locale(label) => (
-            label.clone(),
-            Box::new(|| Ok(ProbeResultValue::Single(ProbeValue::Locale("".to_string())))), // TODO
-        ),
-        ProbeConfig::Java(label) => (
-            label.clone(),
-            Box::new(|| {
+            ProbeType::Users => Box::new(|| Ok(ProbeResultValue::Single(ProbeValue::Users(0)))), // TODO
+            ProbeType::Locale => {
+                Box::new(|| Ok(ProbeResultValue::Single(ProbeValue::Locale("".to_string()))))
+            } // TODO
+            ProbeType::Java => Box::new(|| {
                 Ok(ProbeResultValue::Single(ProbeValue::Java(
                     "N/A".to_string(), // TODO
                 )))
             }),
-        ),
-        ProbeConfig::Python(label) => (
-            label.clone(),
-            Box::new(|| {
+            ProbeType::Python => Box::new(|| {
                 Ok(ProbeResultValue::Single(ProbeValue::Python(
                     "N/A".to_string(), // TODO
                 )))
             }),
-        ),
-        ProbeConfig::Node(label) => (
-            label.clone(),
-            Box::new(|| {
+            ProbeType::Node => Box::new(|| {
                 Ok(ProbeResultValue::Single(ProbeValue::Node(
                     "N/A".to_string(), // TODO
                 )))
             }),
-        ),
-        ProbeConfig::Rust(label) => (
-            label.clone(),
-            Box::new(|| {
+            ProbeType::Rust => Box::new(|| {
                 Ok(ProbeResultValue::Single(ProbeValue::Rust(
                     "N/A".to_string(), // TODO
                 )))
             }),
-        ),
+        }
     }
+}
+
+/// Probe type. Refer to `ProbeValue` for what each metric corresponds to.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub enum ProbeType {
+    Host,
+    OS,
+    Model,
+    Kernel,
+    Uptime,
+    Packages,
+    Shell,
+    Editor,
+    Resolution,
+    DE,
+    WM,
+    WMTheme,
+    Theme,
+    Icons,
+    Cursor,
+    Terminal,
+    TerminalFont,
+    CPU,
+    GPU,
+    Memory,
+    Network,
+    Bluetooth,
+    BIOS,
+
+    GPUDriver,
+    CPUUsage,
+    Disk,
+    Battery,
+    // TODO: Figure out what this should be
+    PowerAdapter,
+    Font,
+    Song,
+    LocalIP,
+    PublicIP,
+    Users,
+    Locale,
+
+    Java,
+    Python,
+    Node,
+    Rust,
 }
 
 pub enum ProbeResultValue {
