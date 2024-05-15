@@ -147,6 +147,7 @@ pub enum ProbeConfig {
     OS(String),
     Model(String),
     Kernel(String),
+    Distro(String),
     Uptime(String),
     Packages(String),
     Shell(String),
@@ -241,6 +242,9 @@ impl ProbeConfig {
             Self::Host("Host".to_string()),
             Self::Model("Machine".to_string()),
             Self::Kernel("Kernel".to_string()),
+            #[cfg(target_os = "linux")]
+            Self::Distro("Distro".to_string()),
+            #[cfg(any(target_os = "macos", target_os = "windows"))]
             Self::OS("OS".to_string()),
             Self::Packages("Packages".to_string()),
             Self::Terminal("Terminal".to_string()),
@@ -257,6 +261,7 @@ impl ProbeConfig {
         match self {
             Self::Host(label) => (label.clone(), ProbeType::Host.into()),
             Self::OS(label) => (label.clone(), ProbeType::OS.into()),
+            Self::Distro(label) => (label.clone(), ProbeType::Distro.into()),
             Self::Model(label) => (label.clone(), ProbeType::Model.into()),
             Self::Kernel(label) => (label.clone(), ProbeType::Kernel.into()),
             Self::Uptime(label) => (label.clone(), ProbeType::Uptime.into()),

@@ -60,8 +60,12 @@ pub enum ProbeValue {
     /// Hostname (username@hostname)
     /// e.g. ("justin13888", "ffetch")
     Host(String, String),
-    /// e.g. "Ubuntu 22.04.4 LTS x86_64"
+    /// e.g. "Ubuntu 22.04.4 LTS (Jammy Jellyfish)"
     OS(String),
+    /// OS Distribution
+    /// E.g.
+    Distro(String),
+    /// Model
     // (Vendor, Product)
     /// e.g. ("Dell Inc.", "XPS 15 9510")
     Model(String, String),
@@ -71,9 +75,9 @@ pub enum ProbeValue {
     /// E.g. 123
     Uptime(usize),
     /// Number of packages installed
-    /// (package manager, count)
-    /// E.g. ("dpkg", 123)
-    Packages(String, usize), // TODO: CHECK
+    /// Vec<(package manager, count)>
+    /// E.g. [("dpkg", 123)]
+    Packages(Vec<(String, usize)>), // TODO: CHECK
     /// E.g. "zsh 5.8.1"
     Shell(String),
     /// E.g. "vim 8.2" // TODO: CHECK THIS example
@@ -137,77 +141,6 @@ pub enum ProbeValue {
     Rust(String),
 }
 
-impl ToString for ProbeValue {
-    fn to_string(&self) -> String {
-        match self {
-            ProbeValue::Host(username, hostname) => format!("{}@{}", username, hostname),
-            ProbeValue::OS(os) => os.to_string(),
-            ProbeValue::Model(vendor, product) => format!("{} {}", vendor, product),
-            ProbeValue::Kernel(kernel) => kernel.to_string(),
-            ProbeValue::Uptime(uptime) => {
-                let uptime = *uptime as f64;
-                let days = (uptime / (60.0 * 60.0 * 24.0)).round() as i32;
-                let hours = ((uptime / (60.0 * 60.0)) % 24.0).round() as i32;
-                let minutes = ((uptime / 60.0) % 60.0).round() as i32;
-                let seconds = (uptime % 60.0).round() as i32;
-                let _res = String::new();
-
-                if days > 0 {
-                    format!("{:.0} days, {:.0} hours, {:.0} mins", days, hours, minutes)
-                } else if hours > 0 {
-                    format!("{:.0} hours, {:.0} mins", hours, minutes)
-                } else if minutes > 0 {
-                    format!("{:.0} mins", minutes)
-                } else {
-                    format!("{:.0} seconds", seconds)
-                }
-            }
-            ProbeValue::Packages(manager, count) => format!("{} ({})", count, manager),
-            ProbeValue::Shell(shell) => shell.to_string(),
-            ProbeValue::Editor(editor) => editor.to_string(),
-            ProbeValue::Resolution(resolution) => resolution.to_string(),
-            ProbeValue::DE(de) => de.to_string(),
-            ProbeValue::WM(wm) => wm.to_string(),
-            ProbeValue::WMTheme(wm_theme) => wm_theme.to_string(),
-            ProbeValue::Theme(theme) => theme.to_string(),
-            ProbeValue::Icons(icons) => icons.to_string(),
-            ProbeValue::Cursor(cursor) => cursor.to_string(),
-            ProbeValue::Terminal(terminal) => terminal.to_string(),
-            ProbeValue::TerminalFont(terminal_font) => terminal_font.to_string(),
-            ProbeValue::CPU(cpu) => cpu.to_string(),
-            ProbeValue::GPU(gpu) => gpu.to_string(),
-            ProbeValue::Memory(free, total) => format!(
-                "{} GiB / {} GiB",
-                (*free as f32 / (1024.0 * 1024.0)).round() as i32,
-                (*total as f32 / (1024.0 * 1024.0)).round() as i32,
-            ),
-            ProbeValue::Network(network) => network.to_string(),
-            ProbeValue::Bluetooth(bluetooth) => bluetooth.to_string(),
-            ProbeValue::BIOS(bios) => bios.to_string(),
-            ProbeValue::GPUDriver(gpu_driver) => gpu_driver.to_string(),
-            ProbeValue::CPUUsage(cpu_usage) => format!("{}%", cpu_usage),
-            ProbeValue::Disk(used, total) => format!(
-                "{} G / {} G ({}%)",
-                (*used as f32 / (1024.0 * 1024.0 * 1024.0)).round() as i32,
-                (*total as f32 / (1024.0 * 1024.0 * 1024.0)).round() as i32,
-                (*used as f32 / *total as f32 * 100.0).round() as i32,
-            ),
-            ProbeValue::Battery(battery) => battery.to_string(),
-            ProbeValue::PowerAdapter(power_adapter) => power_adapter.to_string(),
-            ProbeValue::Font(font) => font.to_string(),
-            ProbeValue::Song(song) => song.to_string(),
-            ProbeValue::LocalIP(local_ip) => local_ip.join(", "),
-            ProbeValue::PublicIP(public_ip) => public_ip.to_string(),
-            ProbeValue::Users(users) => users.to_string(),
-            ProbeValue::Locale(locale) => locale.to_string(),
-            ProbeValue::Java(java) => java.to_string(),
-            ProbeValue::Node(node) => node.to_string(),
-            ProbeValue::Python(python) => python.to_string(),
-            ProbeValue::Rust(rust) => rust.to_string(),
-        }
-    }
-}
-
 #[derive(Error, Debug)]
 pub enum ProbeError {
     /// Metric is unavailable on this platform
@@ -265,6 +198,11 @@ impl From<ProbeType> for ProbeResultFunction {
                     general_readout().os_name()?,
                 )))
             }),
+            ProbeType::Distro => Box::new(|| {
+                Ok(ProbeResultValue::Single(ProbeValue::Distro(
+                    general_readout().distribution()?,
+                )))
+            }),
             ProbeType::Model => Box::new(|| {
                 Ok(ProbeResultValue::Single(ProbeValue::Model(
                     product_readout().vendor()?,
@@ -273,7 +211,7 @@ impl From<ProbeType> for ProbeResultFunction {
             }),
             ProbeType::Kernel => Box::new(|| {
                 Ok(ProbeResultValue::Single(ProbeValue::Kernel(
-                    kernel_readout().pretty_kernel()?,
+                    kernel_readout().os_release()?,
                 )))
             }),
             ProbeType::Uptime => Box::new(|| {
@@ -283,13 +221,13 @@ impl From<ProbeType> for ProbeResultFunction {
             }),
             // TODO: Test libmacchina packages() function for package manager hanging issues
             ProbeType::Packages => Box::new(|| {
-                Ok(ProbeResultValue::Multiple(
+                Ok(ProbeResultValue::Single(ProbeValue::Packages(
                     package_readout()
                         .count_pkgs()
                         .into_iter()
-                        .map(|(name, count)| ProbeValue::Packages(name.to_string(), count))
+                        .map(|(name, count)| (name.to_string(), count))
                         .collect::<Vec<_>>(),
-                ))
+                )))
             }),
             ProbeType::Shell => Box::new(|| {
                 Ok(ProbeResultValue::Single(ProbeValue::Shell(
@@ -453,6 +391,7 @@ pub enum ProbeType {
     OS,
     Model,
     Kernel,
+    Distro,
     Uptime,
     Packages,
     Shell,

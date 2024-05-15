@@ -74,10 +74,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .collect::<Vec<_>>();
     match config.renderer {
         RendererConfig::Neofetch => {
-            NeofetchRenderer::new().draw(&config.neofetch, &probe_list)?;
+            NeofetchRenderer::new(config.neofetch).draw(&probe_list)?;
         }
         RendererConfig::Macchina => {
-            MacchinaRenderer::new().draw(&config.macchina, &probe_list)?;
+            MacchinaRenderer::new(config.macchina).draw(&probe_list)?;
         }
     };
 
