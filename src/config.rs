@@ -248,14 +248,16 @@ impl ProbeConfig {
             Self::OS("OS".to_string()),
             Self::Packages("Packages".to_string()),
             Self::Terminal("Terminal".to_string()),
+            Self::LocalIP("Local IP".to_string()),
             Self::Shell("Shell".to_string()),
+            Self::Uptime("Uptime".to_string()),
             Self::CPU("CPU".to_string()),
             Self::Resolution("Resolution".to_string()),
             Self::CPUUsage("CPU Load".to_string()),
             Self::Memory("Memory".to_string()),
             Self::Battery("Battery".to_string()),
         ]
-    }
+    } // TODO: Double check this function with macchina CLI source code
 
     pub fn get_funcs(&self) -> (String, ProbeResultFunction) {
         match self {

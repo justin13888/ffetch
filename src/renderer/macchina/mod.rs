@@ -91,22 +91,40 @@ impl MacchinaRenderer {
             ProbeValue::Model(vendor, product) => format!("{} {}", vendor, product),
             ProbeValue::Kernel(kernel) => kernel.to_string(),
             ProbeValue::Uptime(uptime) => {
+                // TODO: Check if this is correct
                 let uptime = *uptime as f64;
-                let days = (uptime / (60.0 * 60.0 * 24.0)).round() as i32;
-                let hours = ((uptime / (60.0 * 60.0)) % 24.0).round() as i32;
-                let minutes = ((uptime / 60.0) % 60.0).round() as i32;
-                let seconds = (uptime % 60.0).round() as i32;
+                let days = (uptime / (60.0 * 60.0 * 24.0)).floor() as i32;
+                let hours = ((uptime / (60.0 * 60.0)) % 24.0).floor() as i32;
+                let minutes = ((uptime / 60.0) % 60.0).floor() as i32;
                 let _res = String::new();
 
-                if days > 0 {
-                    format!("{:.0} days, {:.0} hours, {:.0} mins", days, hours, minutes)
-                } else if hours > 0 {
-                    format!("{:.0} hours, {:.0} mins", hours, minutes)
-                } else if minutes > 0 {
-                    format!("{:.0} mins", minutes)
-                } else {
-                    format!("{:.0} seconds", seconds)
-                }
+                format!(
+                    "{}{}{}",
+                    if days > 0 {
+                        format!("{:.0}d ", days)
+                    } else {
+                        String::new()
+                    },
+                    if hours > 0 {
+                        format!("{:.0}h ", hours)
+                    } else {
+                        String::new()
+                    },
+                    if minutes > 0 {
+                        format!("{:.0}m ", minutes)
+                    } else {
+                        String::new()
+                    },
+                )
+                // if days > 0 {
+                //     format!("{:.0}d {:.0}h {:.0}m", days, hours, minutes)
+                // } else if hours > 0 {
+                //     format!("{:.0}h {:.0}m", hours, minutes)
+                // } else if minutes > 0 {
+                //     format!("{:.0}m", minutes)
+                // } else {
+                //     format!("{:.0}s", seconds)
+                // }
             }
             ProbeValue::Packages(counts) => counts
                 .iter()
@@ -127,9 +145,9 @@ impl MacchinaRenderer {
             ProbeValue::CPU(cpu) => cpu.to_string(),
             ProbeValue::GPU(gpu) => gpu.to_string(),
             ProbeValue::Memory(free, total) => format!(
-                "{} GiB / {} GiB",
-                (*free as f32 / (1024.0 * 1024.0)).round() as i32,
-                (*total as f32 / (1024.0 * 1024.0)).round() as i32,
+                "{} GB / {} GB",
+                ((*free as f32 * 10.0 / (1000.0 * 1000.0)).round() / 10.0),
+                ((*total as f32 * 10.0 / (1000.0 * 1000.0)).round() / 10.0),
             ),
             ProbeValue::Network(network) => network.to_string(),
             ProbeValue::Bluetooth(bluetooth) => bluetooth.to_string(),
@@ -142,11 +160,17 @@ impl MacchinaRenderer {
                 (*total as f32 / (1024.0 * 1024.0 * 1024.0)).round() as i32,
                 (*used as f32 / *total as f32 * 100.0).round() as i32,
             ),
-            ProbeValue::Battery(battery) => battery.to_string(),
+            ProbeValue::Battery(battery) => {
+                if *battery >= 100 {
+                    "Full".to_string()
+                } else {
+                    battery.to_string()
+                }
+            }
             ProbeValue::PowerAdapter(power_adapter) => power_adapter.to_string(),
             ProbeValue::Font(font) => font.to_string(),
             ProbeValue::Song(song) => song.to_string(),
-            ProbeValue::LocalIP(local_ip) => local_ip.join(", "),
+            ProbeValue::LocalIP(local_ip) => local_ip.to_string(),
             ProbeValue::PublicIP(public_ip) => public_ip.to_string(),
             ProbeValue::Users(users) => users.to_string(),
             ProbeValue::Locale(locale) => locale.to_string(),

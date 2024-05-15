@@ -143,7 +143,7 @@ impl NeofetchRenderer {
             ProbeValue::PowerAdapter(power_adapter) => power_adapter.to_string(),
             ProbeValue::Font(font) => font.to_string(),
             ProbeValue::Song(song) => song.to_string(),
-            ProbeValue::LocalIP(local_ip) => local_ip.join(", "),
+            ProbeValue::LocalIP(local_ip) => local_ip.to_string(),
             ProbeValue::PublicIP(public_ip) => public_ip.to_string(),
             ProbeValue::Users(users) => users.to_string(),
             ProbeValue::Locale(locale) => locale.to_string(),

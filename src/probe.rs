@@ -122,9 +122,9 @@ pub enum ProbeValue {
     PowerAdapter(String), // TODO: CHECK
     Font(String),
     Song(String),
-    LocalIP(Vec<String>), // TODO: CHECK
-    PublicIP(String),     // TODO: CHECK
-    Users(usize),         // TODO: CHECK
+    LocalIP(String),  // TODO: CHECK
+    PublicIP(String), // TODO: CHECK
+    Users(usize),     // TODO: CHECK
     /// E.g. "en_US.UTF-8"
     Locale(String),
     /// Java version
@@ -348,9 +348,11 @@ impl From<ProbeType> for ProbeResultFunction {
             ProbeType::Song => {
                 Box::new(|| Ok(ProbeResultValue::Single(ProbeValue::Song("".to_string()))))
             } // TODO
-            ProbeType::LocalIP => {
-                Box::new(|| Ok(ProbeResultValue::Single(ProbeValue::LocalIP(vec![]))))
-            } // TODO
+            ProbeType::LocalIP => Box::new(|| {
+                Ok(ProbeResultValue::Single(ProbeValue::LocalIP(
+                    network_readout().logical_address(None)?,
+                )))
+            }), // TODO
             ProbeType::PublicIP => Box::new(|| {
                 Ok(ProbeResultValue::Single(ProbeValue::PublicIP(
                     "".to_string(), // TODO
