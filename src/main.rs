@@ -4,42 +4,75 @@ compile_error!("This crate is only supported on Linux, macOS, and Windows.");
 
 use std::path::PathBuf;
 
-use clap::{ArgGroup, Parser};
-use tracing::{debug, Level};
-use tracing_subscriber::field::debug;
+use clap::{ArgGroup, Parser, Subcommand};
+use tracing::{debug, info, Level};
+
 
 use crate::{
-    config::{Config, RendererConfig},
+    config::{Config, RendererOverride},
     renderer::{macchina::MacchinaRenderer, neofetch::NeofetchRenderer},
 };
 
-pub mod colour;
 pub mod config;
 pub mod probe;
 pub mod renderer;
 
-// TODO: Support adjusting configs via CLI.
 // TODO: Include 'libmacchina' version in version command
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
-#[clap(group = ArgGroup::new("preset").multiple(false).required(true))]
-pub struct Args {
+#[clap(group = ArgGroup::new("setting").multiple(false).required(false))]
+#[clap(group = ArgGroup::new("renderer").multiple(false).required(false))]
+struct Cli {
     /// Include verbose output or not.
-    #[clap(long, default_value = "false")]
+    #[clap(long, global = true, default_value = "false")]
     verbose: bool,
 
-    #[clap(short, long, group = "preset")]
+    /// Path to a custom config file.
+    #[clap(short, long, group = "setting")]
     config: Option<PathBuf>,
+    /// Use all default presets.
+    #[clap(long, group = "setting")]
+    all: bool,
+
+    /// Set to Neofetch renderer.
+    #[clap(short, long, group = "renderer")]
+    neofetch: bool,
+    /// Set to Macchina renderer.
+    #[clap(short, long, group = "renderer")]
+    macchina: bool,
+
+    // Command subcommands
+    #[clap(subcommand)]
+    command: Option<Command>,
+    // TODO: Support "generate" subcommand
+}
+
+#[derive(Subcommand, Debug)]
+#[clap(group = ArgGroup::new("preset").multiple(false).required(false))]
+enum Command {
+    /// Generate a new config file
+    Generate(GenerateCommandArgs),
+    /// Return default config file path
+    ConfigPath,
+}
+
+#[derive(Parser, Debug)]
+struct GenerateCommandArgs {
+    /// Generate neofetch preset.
     #[clap(short, long, group = "preset")]
     neofetch: bool,
+    /// Generate macchina preset.
     #[clap(short, long, group = "preset")]
     macchina: bool,
-    // TODO: Support "generate" subcommand
+
+    /// Use all default presets.
+    #[clap(long)]
+    all: bool,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Parse CLI arguments
-    let args = Args::parse();
+    let args = Cli::parse();
     let verbose = args.verbose;
 
     // TODO: Initialize tracing (logging)
@@ -55,37 +88,126 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     debug!("Args: {:?}", args);
 
-    // Fetch config, otherwise use default
-    let config = if let Some(config_path) = args.config {
-        // Custom config file was provided
-        debug!("Using custom config: {:?}", config_path);
-        Config::from_file(&config_path)?
-    } else if args.neofetch {
-        // Neofetch preset
-        debug!("Using neofetch preset");
-        Config::default_neofetch()
-    } else if args.macchina {
-        // Macchina preset
-        debug!("Using macchina preset");
-        Config::default_macchina()
-    } else {
-        // No custom config file was provided
-        debug!("Searching default config");
-        let project_dirs = directories::ProjectDirs::from("net", "justin13888", "ffetch")
-            .expect("BUG: Could not find project directories");
-        let config_dir = project_dirs.config_dir();
-        debug!("Default config dir: {:?}", config_dir);
-        let config_path = config_dir.join("config.toml");
-        debug!("Default config path: {:?}", config_path);
+    if let Some(command) = args.command {
+        match command {
+            Command::Generate(args) => {
+                // Generate a new config file
+                debug!("Generating new config file");
+                let config_dir =
+                    Config::get_config_dir().expect("Could not determine config directory");
+                debug!("Default config dir: {:?}", config_dir);
 
+                // Create config directory if it doesn't exist
+                if !config_dir.exists() {
+                    std::fs::create_dir_all(&config_dir)?;
+                    println!("Config directory created successfully");
+                }
+
+                let config_path = config_dir.join(Config::CONFIG_FILE_NAME);
+                debug!("Default config path: {:?}", config_path);
+
+                if config_path.try_exists()? {
+                    println!("Config file already exists, skipping generation");
+                    return Ok(());
+                }
+
+                // Determine which preset to generate
+                let default_config = if args.neofetch {
+                    if args.all {
+                        Config::default_neofetch_all()
+                    } else {
+                        Config::default_neofetch()
+                    }
+                } else if args.macchina {
+                    if args.all {
+                        Config::default_macchina_all()
+                    } else {
+                        Config::default_macchina()
+                    }
+                } else if args.all {
+                    Config::default_all()
+                } else {
+                    Config::default()
+                };
+
+                default_config.to_file(&config_path)?;
+                println!("Config file generated successfully");
+                return Ok(());
+            }
+            Command::ConfigPath => {
+                // Return default config file path
+                debug!("Returning default config file path");
+                let config_path = Config::get_config_dir()
+                    .expect("Could not determine config directory")
+                    .join(Config::CONFIG_FILE_NAME);
+                println!("{}", config_path.display());
+                return Ok(());
+            }
+        }
+    }
+
+    // Handle main command
+
+    // Fetch config, otherwise use default
+    // TODO: Fix so arguments only change the default renderer and not set the default config
+    let config = if args.all {
+        // Use default all presets
+        if args.neofetch {
+            debug!("Using neofetch all preset");
+            Config::default_neofetch_all()
+        } else if args.macchina {
+            debug!("Using macchina all preset");
+            Config::default_macchina_all()
+        } else {
+            debug!("Using default all preset");
+            Config::default_all()
+        }
+    } else {
+        // Determine config path
+        let config_path = match args.config {
+            Some(config_path) => {
+                // Custom config file was provided
+                debug!("Using custom config path: {:?}", config_path);
+                config_path
+            }
+            None => {
+                // Search at default config path
+                let default_config_path = Config::get_config_dir()
+                    .expect("Could not determine config directory")
+                    .join(Config::CONFIG_FILE_NAME);
+                debug!("Using default config path: {:?}", default_config_path);
+
+                default_config_path
+            }
+        };
+
+        // Verify config file exists
         match config_path.try_exists() {
-            Ok(true) => Config::from_file(&config_path)?,
+            Ok(true) => {
+                // Load config from file
+                Config::from_file(
+                    &config_path,
+                    if args.neofetch {
+                        debug!("Overriding neofetch renderer");
+                        Some(RendererOverride::Neofetch)
+                    } else if args.macchina {
+                        debug!("Overriding macchina renderer");
+                        Some(RendererOverride::Macchina)
+                    } else {
+                        debug!("Using config from default path");
+                        None
+                    },
+                )?
+            }
             Ok(false) => {
                 debug!("No config dir found, using default config");
                 Config::default()
             }
             Err(e) => {
-                debug!("Error checking for config dir: {:?}", e);
+                info!(
+                    "Using default config. Error checking for config dir: {:?}",
+                    e
+                );
                 Config::default()
             }
         }
@@ -93,18 +215,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     debug!("Config: {:?}", config);
 
-    // TODO: Read config and determine render output
-    let probe_list = config
-        .probes
-        .into_iter()
-        .map(|p| p.get_funcs())
-        .collect::<Vec<_>>();
-    match config.renderer {
-        RendererConfig::Neofetch => {
-            NeofetchRenderer::new(config.neofetch).draw(&probe_list)?;
+    match config {
+        Config::Neofetch(neofetch_config) => {
+            NeofetchRenderer::new(neofetch_config).draw()?;
         }
-        RendererConfig::Macchina => {
-            MacchinaRenderer::new(config.macchina).draw(&probe_list)?;
+        Config::Macchina(macchina_config) => {
+            MacchinaRenderer::new(macchina_config).draw()?;
         }
     };
 

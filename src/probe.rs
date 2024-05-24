@@ -11,7 +11,7 @@ use libmacchina::{
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::config::ProbeConfig;
+
 
 pub fn battery_readout() -> &'static BatteryReadout {
     use libmacchina::traits::BatteryReadout as _;

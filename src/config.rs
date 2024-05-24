@@ -1,54 +1,58 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::probe::{ProbeResultFunction, ProbeType};
+use crate::{
+    probe::{ProbeResultFunction, ProbeType},
+    renderer::macchina::MacchinaRenderer,
+};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct Config {
-    pub renderer: RendererConfig,
-    pub neofetch: NeofetchRendererConfig,
-    pub macchina: MacchinaRendererConfig,
-    pub probes: Vec<ProbeConfig>,
+pub enum Config {
+    Neofetch(NeofetchRendererConfig),
+    Macchina(MacchinaRendererConfig),
+}
+
+pub enum RendererOverride {
+    Neofetch,
+    Macchina,
 }
 
 impl Config {
     /// Default config with all features enabled
     pub fn default_all() -> Self {
-        Self {
-            renderer: RendererConfig::default(),
-            neofetch: NeofetchRendererConfig::default(),
-            macchina: MacchinaRendererConfig::default(),
-            probes: ProbeConfig::default_all(),
-        }
+        Self::default_neofetch_all()
     }
 
     /// Default config replicating neofetch
     pub fn default_neofetch() -> Self {
-        Self {
-            renderer: RendererConfig::Neofetch,
-            neofetch: NeofetchRendererConfig::default(),
-            macchina: MacchinaRendererConfig::default(),
-            probes: ProbeConfig::default_neofetch(),
-        }
+        Self::Neofetch(NeofetchRendererConfig::default())
+    }
+
+    /// Default config replicating neofetch with all features enabled
+    pub fn default_neofetch_all() -> Self {
+        Self::Neofetch(NeofetchRendererConfig::default_all())
     }
 
     /// Default config replicating macchina CLI
     /// TODO: Implement all macchina CLI configs
     pub fn default_macchina() -> Self {
-        Self {
-            renderer: RendererConfig::Macchina, // TODO: Change to Macchina renderer when implemented
-            neofetch: NeofetchRendererConfig::default(),
-            macchina: MacchinaRendererConfig::default(),
-            probes: ProbeConfig::default_macchina(),
-        }
+        Self::Macchina(MacchinaRendererConfig::default())
+    }
+
+    /// Default config replicating macchina with all features enabled
+    pub fn default_macchina_all() -> Self {
+        Self::Macchina(MacchinaRendererConfig::default_all())
     }
 
     /// Load config from a file
-    // TODO: Support deserialization where undefined fields are set to default
-    // TODO: When deserializing, check the probe config order to determine another field. Need to modify ProbeConfig structure
-    pub fn from_file(path: &Path) -> Result<Self, ConfigParseError> {
+    pub fn from_file(
+        path: &Path,
+        _renderer_override: Option<RendererOverride>,
+    ) -> Result<Self, ConfigParseError> {
+        // TODO: Support "extending" default configs
+        // TODO: Implement renderer override
         toml::from_str(&std::fs::read_to_string(path)?).map_err(|e| e.into())
     }
 
@@ -73,11 +77,21 @@ impl Config {
         config.to_file(path)
         // TODO: Replace line above with custom serialization to include comments
     }
+
+    fn get_project_dirs() -> Option<directories::ProjectDirs> {
+        directories::ProjectDirs::from("net", "justin13888", "ffetch")
+    }
+
+    pub fn get_config_dir() -> Option<PathBuf> {
+        Self::get_project_dirs().map(|dirs| dirs.config_dir().to_path_buf())
+    }
+
+    pub const CONFIG_FILE_NAME: &'static str = "config.toml";
 }
 
 impl Default for Config {
     fn default() -> Self {
-        Self::default_all()
+        Self::default_neofetch()
     }
 }
 
@@ -98,24 +112,25 @@ pub enum ConfigWriteError {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub enum RendererConfig {
-    Neofetch,
-    Macchina,
-}
-
-impl Default for RendererConfig {
-    fn default() -> Self {
-        Self::Neofetch
-    }
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct NeofetchRendererConfig {
     /// Whether to display the title
     /// (e.g. "johndoe@myhostname\n------------------")
     pub title: bool,
     pub underline: bool,
     pub col: bool,
+
+    pub probes: Vec<ProbeConfig>,
+}
+
+impl NeofetchRendererConfig {
+    pub fn default_all() -> Self {
+        Self {
+            title: true,
+            underline: true,
+            col: true,
+            probes: ProbeConfig::default_all(),
+        }
+    }
 }
 
 impl Default for NeofetchRendererConfig {
@@ -124,17 +139,41 @@ impl Default for NeofetchRendererConfig {
             title: true,
             underline: true,
             col: true,
+            probes: ProbeConfig::default_neofetch(),
         }
     }
 }
 
 // TODO: Implement Macchina configs
+// TODO: Consume config with renderer
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct MacchinaRendererConfig;
+pub struct MacchinaRendererConfig {
+    /// Specifies the network interface to use for the LocalIP readout
+    pub interface: Option<String>,
+    /// Lengthen uptime output
+    pub long_uptime: bool,
+
+    // Probe configs
+    pub probes: Vec<ProbeConfig>,
+}
+
+impl MacchinaRendererConfig {
+    pub fn default_all() -> Self {
+        Self {
+            interface: None,
+            long_uptime: true,
+            probes: ProbeConfig::default_all(),
+        }
+    }
+}
 
 impl Default for MacchinaRendererConfig {
     fn default() -> Self {
-        Self
+        Self {
+            interface: None,
+            long_uptime: true,
+            probes: ProbeConfig::default_macchina(),
+        }
     }
 }
 
@@ -233,7 +272,30 @@ impl ProbeConfig {
 
     /// Default config replicating Neofetch
     pub fn default_neofetch() -> Vec<Self> {
-        todo!("Refer to neofetch default config to implement")
+        vec![
+            Self::OS("OS".to_string()),
+            Self::Model("Host".to_string()),
+            Self::Kernel("Kernel".to_string()),
+            Self::Uptime("Uptime".to_string()),
+            Self::Packages("Packages".to_string()),
+            Self::Shell("Shell".to_string()),
+            Self::Editor("Editor".to_string()),
+            Self::Resolution("Resolution".to_string()),
+            Self::DE("DE".to_string()),
+            Self::WM("WM".to_string()),
+            Self::WMTheme("WM Theme".to_string()),
+            Self::Theme("Theme".to_string()),
+            Self::Icons("Icons".to_string()),
+            Self::Cursor("Cursor".to_string()),
+            Self::Terminal("Terminal".to_string()),
+            Self::TerminalFont("Terminal Font".to_string()),
+            Self::CPU("CPU".to_string()),
+            Self::GPU("GPU".to_string()),
+            Self::Memory("Memory".to_string()),
+            Self::Network("Network".to_string()),
+            Self::Bluetooth("Bluetooth".to_string()),
+            Self::BIOS("BIOS".to_string()),
+        ]
     }
 
     /// Default config replicating macchina CLI

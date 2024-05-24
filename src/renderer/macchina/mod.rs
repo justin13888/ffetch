@@ -2,19 +2,19 @@ use console::style;
 use tracing::debug;
 
 use crate::{
-    colour::primary,
     config::MacchinaRendererConfig,
-    probe::{general_readout, ProbeList, ProbeResultValue, ProbeValue},
+    probe::{ProbeList, ProbeResultValue, ProbeValue},
     renderer::macchina::ascii::ASCII_ART_FILLER,
 };
 
 use super::RendererError;
 
 mod ascii;
-use ascii::ASCII_ART;
+use ascii::{ASCII_ART};
 
 pub struct MacchinaRenderer {
     config: MacchinaRendererConfig,
+    probe_list: ProbeList,
 }
 
 impl Default for MacchinaRenderer {
@@ -25,14 +25,17 @@ impl Default for MacchinaRenderer {
 
 impl MacchinaRenderer {
     pub fn new(config: MacchinaRendererConfig) -> Self {
-        Self {
-            config: MacchinaRendererConfig::default(),
-        }
+        let probe_list = config
+            .probes
+            .iter()
+            .map(|p| p.get_funcs())
+            .collect::<Vec<_>>();
+        Self { config, probe_list }
     }
 
-    pub fn draw(&self, probe_list: &ProbeList) -> Result<(), RendererError> {
+    pub fn draw(&self) -> Result<(), RendererError> {
         let title_width = std::cmp::max(
-            probe_list
+            self.probe_list
                 .iter()
                 .map(|(title, _)| title.len())
                 .max()
@@ -45,7 +48,7 @@ impl MacchinaRenderer {
 
         let mut art_iter = ASCII_ART.iter();
 
-        for (title, probe) in probe_list {
+        for (title, probe) in &self.probe_list {
             let results: Vec<String> = match probe() {
                 Ok(result) => match result {
                     ProbeResultValue::Single(value) => vec![Self::probe_config_to_string(&value)],
@@ -77,7 +80,7 @@ impl MacchinaRenderer {
         for art in art_iter {
             println!("{}", style(art).blue());
         }
-        
+
         println!();
 
         Ok(())

@@ -1,3 +1,5 @@
+use console::Color;
+
 #[cfg(target_os = "windows")]
 pub const ASCII_ART: [&str; 16] = [
     "WWWWWWWWWWWWWW  WWWWWWWWWWWWWW",

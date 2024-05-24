@@ -2,15 +2,19 @@ use console::style;
 use tracing::debug;
 
 use crate::{
-    colour::primary,
     config::NeofetchRendererConfig,
     probe::{general_readout, ProbeList, ProbeResultValue, ProbeValue},
 };
 
+use self::ascii::{primary};
+
 use super::RendererError;
+
+mod ascii;
 
 pub struct NeofetchRenderer {
     config: NeofetchRendererConfig,
+    probe_list: ProbeList,
 }
 
 impl Default for NeofetchRenderer {
@@ -21,26 +25,40 @@ impl Default for NeofetchRenderer {
 
 impl NeofetchRenderer {
     pub fn new(config: NeofetchRendererConfig) -> Self {
-        Self { config }
+        let probe_list = config
+            .probes
+            .iter()
+            .map(|p| p.get_funcs())
+            .collect::<Vec<_>>();
+        Self { config, probe_list }
     }
 
-    pub fn draw(&self, probe_list: &ProbeList) -> Result<(), RendererError> {
-        let max_title_len = probe_list
+    // TODO: Reimplement to render out of order using crossterm
+    pub fn draw(&self) -> Result<(), RendererError> {
+        let max_title_len = self
+            .probe_list
             .iter()
             .map(|(title, _)| title.len())
             .max()
             .unwrap_or(0);
 
         // TODO: Render title and underline
+        // TODO: replace vv to detect platform
+        let mut art_iter = ascii::ASCII_ART_UBUNTU.iter();
 
         let mut title_len = 0;
         if self.config.title {
             use libmacchina::traits::GeneralReadout as _;
+
             let username = general_readout().username()?;
             let hostname = general_readout().hostname()?;
             title_len = username.len() + hostname.len() + 1;
             println!(
-                "{}@{}",
+                "{}   {}@{}",
+                match art_iter.next() {
+                    Some(art) => art,
+                    None => ascii::ASCII_ART_UBUNTU_FILLER,
+                },
                 style(username).fg(primary()),
                 style(hostname).fg(primary()),
             );
@@ -48,10 +66,17 @@ impl NeofetchRenderer {
 
         if self.config.underline {
             let underline = "-".repeat(title_len);
-            println!("{}", underline);
+            println!(
+                "{}   {}",
+                match art_iter.next() {
+                    Some(art) => art,
+                    None => ascii::ASCII_ART_UBUNTU_FILLER,
+                },
+                underline
+            );
         }
 
-        for (title, probe) in probe_list {
+        for (title, probe) in &self.probe_list {
             let title = format!("{:width$}:", title, width = max_title_len);
             let results = match probe() {
                 Ok(result) => match result {
@@ -67,7 +92,15 @@ impl NeofetchRenderer {
                 }
             };
             results.into_iter().for_each(|result| {
-                println!("{} {}", style(title.clone()).fg(primary()), result);
+                println!(
+                    "{}   {} {}",
+                    match art_iter.next() {
+                        Some(art) => art,
+                        None => ascii::ASCII_ART_UBUNTU_FILLER,
+                    },
+                    style(title.clone()).fg(primary()),
+                    result
+                );
             });
         }
 
