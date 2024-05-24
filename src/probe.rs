@@ -1,5 +1,7 @@
 use std::{
-    fmt::{self, Display, Formatter}, path::PathBuf, sync::OnceLock
+    fmt::{self, Display, Formatter},
+    path::PathBuf,
+    sync::OnceLock,
 };
 
 use libmacchina::{
@@ -8,10 +10,8 @@ use libmacchina::{
     ProductReadout,
 };
 use serde::{Deserialize, Serialize};
-use sysinfo::Disks;
+use sysinfo::{Disks, Users};
 use thiserror::Error;
-
-
 
 pub fn battery_readout() -> &'static BatteryReadout {
     use libmacchina::traits::BatteryReadout as _;
@@ -124,7 +124,7 @@ pub enum ProbeValue {
     LocalIP(String),  // TODO: CHECK
     PublicIP(String), // TODO: CHECK
     /// List of users
-    Users(Vec<String>),     // TODO: CHECK
+    Users(Vec<String>),
     /// E.g. "en_US.UTF-8"
     Locale(String),
     /// Java version
@@ -333,11 +333,13 @@ impl From<ProbeType> for ProbeResultFunction {
                 Ok(ProbeResultValue::Multiple(
                     disks
                         .iter()
-                        .map(|disk| ProbeValue::Disk(
-                            disk.mount_point().to_path_buf(),
-                            disk.available_space(),
-                            disk.total_space()
-                        ))
+                        .map(|disk| {
+                            ProbeValue::Disk(
+                                disk.mount_point().to_path_buf(),
+                                disk.available_space(),
+                                disk.total_space(),
+                            )
+                        })
                         .collect::<Vec<_>>(),
                 ))
             }),
@@ -371,9 +373,19 @@ impl From<ProbeType> for ProbeResultFunction {
                     "".to_string(), // TODO
                 )))
             }),
-            ProbeType::Users => Box::new(|| Ok(ProbeResultValue::Single(ProbeValue::Users(
-                Users::new_with_refres
-            )))), // TODO
+            ProbeType::Users => Box::new(|| {
+                Ok(ProbeResultValue::Single(ProbeValue::Users(
+                    // TODO: Evaluate, whether we should make determining user platform dependent (may be unreliable currently)
+                    Users::new_with_refreshed_list()
+                        .iter()
+                        .filter(|user| {
+                            let numeric_id = *user.id().to_owned();
+                            (1000..65535).contains(&numeric_id)
+                        })
+                        .map(|user| user.name().to_string())
+                        .collect::<Vec<_>>(),
+                )))
+            }),
             ProbeType::Locale => {
                 Box::new(|| Ok(ProbeResultValue::Single(ProbeValue::Locale("".to_string()))))
             } // TODO

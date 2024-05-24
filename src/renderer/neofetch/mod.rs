@@ -6,7 +6,7 @@ use crate::{
     probe::{general_readout, ProbeList, ProbeResultValue, ProbeValue},
 };
 
-use self::ascii::{primary};
+use self::ascii::primary;
 
 use super::RendererError;
 
@@ -166,19 +166,19 @@ impl NeofetchRenderer {
             ProbeValue::BIOS(bios) => bios.to_string(),
             ProbeValue::GPUDriver(gpu_driver) => gpu_driver.to_string(),
             ProbeValue::CPUUsage(cpu_usage) => format!("{}%", cpu_usage),
-            ProbeValue::Disk(used, total) => format!(
+            ProbeValue::Disk(mountpoint, used, total) => format!(
                 "{} G / {} G ({}%)",
                 (*used as f32 / (1024.0 * 1024.0 * 1024.0)).round() as i32,
                 (*total as f32 / (1024.0 * 1024.0 * 1024.0)).round() as i32,
                 (*used as f32 / *total as f32 * 100.0).round() as i32,
-            ),
+            ), // TODO: Somehow render mountpoint
             ProbeValue::Battery(battery) => battery.to_string(),
             ProbeValue::PowerAdapter(power_adapter) => power_adapter.to_string(),
             ProbeValue::Font(font) => font.to_string(),
             ProbeValue::Song(song) => song.to_string(),
             ProbeValue::LocalIP(local_ip) => local_ip.to_string(),
             ProbeValue::PublicIP(public_ip) => public_ip.to_string(),
-            ProbeValue::Users(users) => users.to_string(),
+            ProbeValue::Users(users) => users.join(", "),
             ProbeValue::Locale(locale) => locale.to_string(),
             ProbeValue::Java(java) => java.to_string(),
             ProbeValue::Node(node) => node.to_string(),

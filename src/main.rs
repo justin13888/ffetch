@@ -7,7 +7,6 @@ use std::path::PathBuf;
 use clap::{ArgGroup, Parser, Subcommand};
 use tracing::{debug, info, Level};
 
-
 use crate::{
     config::{Config, RendererOverride},
     renderer::{macchina::MacchinaRenderer, neofetch::NeofetchRenderer},
@@ -44,7 +43,6 @@ struct Cli {
     // Command subcommands
     #[clap(subcommand)]
     command: Option<Command>,
-    // TODO: Support "generate" subcommand
 }
 
 #[derive(Subcommand, Debug)]
@@ -75,7 +73,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Cli::parse();
     let verbose = args.verbose;
 
-    // TODO: Initialize tracing (logging)
+    // Initialize logger
     match verbose {
         true => {
             tracing_subscriber::fmt()
