@@ -77,7 +77,7 @@ pub enum ProbeValue {
     /// Number of packages installed
     /// Vec<(package manager, count)>
     /// E.g. [("dpkg", 123)]
-    Packages(Vec<(String, usize)>), // TODO: CHECK
+    Packages(Vec<(String, usize)>),
     /// E.g. "zsh 5.8.1"
     Shell(String),
     /// E.g. "vim 8.2" // TODO: CHECK THIS example
@@ -124,7 +124,8 @@ pub enum ProbeValue {
     Song(String),
     LocalIP(String),  // TODO: CHECK
     PublicIP(String), // TODO: CHECK
-    Users(usize),     // TODO: CHECK
+    /// List of users
+    Users(Vec<String>),     // TODO: CHECK
     /// E.g. "en_US.UTF-8"
     Locale(String),
     /// Java version
@@ -358,7 +359,9 @@ impl From<ProbeType> for ProbeResultFunction {
                     "".to_string(), // TODO
                 )))
             }),
-            ProbeType::Users => Box::new(|| Ok(ProbeResultValue::Single(ProbeValue::Users(0)))), // TODO
+            ProbeType::Users => Box::new(|| Ok(ProbeResultValue::Single(ProbeValue::Users(
+                Users::new_with_refres
+            )))), // TODO
             ProbeType::Locale => {
                 Box::new(|| Ok(ProbeResultValue::Single(ProbeValue::Locale("".to_string()))))
             } // TODO

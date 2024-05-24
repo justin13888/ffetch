@@ -4,13 +4,12 @@ use tracing::debug;
 use crate::{
     config::MacchinaRendererConfig,
     probe::{ProbeList, ProbeResultValue, ProbeValue},
-    renderer::macchina::ascii::ASCII_ART_FILLER,
 };
 
 use super::RendererError;
 
 mod ascii;
-use ascii::{ASCII_ART};
+use ascii::{ASCII_ART, ASCII_ART_FILLER};
 
 pub struct MacchinaRenderer {
     config: MacchinaRendererConfig,
