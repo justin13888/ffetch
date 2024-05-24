@@ -1,6 +1,5 @@
 use std::{
-    fmt::{self, Display, Formatter},
-    sync::OnceLock,
+    fmt::{self, Display, Formatter}, path::PathBuf, sync::OnceLock
 };
 
 use libmacchina::{
@@ -9,6 +8,7 @@ use libmacchina::{
     ProductReadout,
 };
 use serde::{Deserialize, Serialize};
+use sysinfo::Disks;
 use thiserror::Error;
 
 
@@ -113,9 +113,8 @@ pub enum ProbeValue {
     /// E.g. 12
     CPUUsage(usize),
     /// Disk usage (in bytes)
-    /// (used, total)
-    /// E.g.
-    Disk(u64, u64), // TODO: CHECK
+    /// (mountpoint, used, total)
+    Disk(PathBuf, u64, u64),
     /// Battery percentage
     /// E.g. 86
     Battery(u8), // TODO: CHECK
@@ -322,11 +321,24 @@ impl From<ProbeType> for ProbeResultFunction {
                 )))
             }),
             ProbeType::Disk => Box::new(|| {
-                let disk_readout = general_readout().disk_space()?;
-                Ok(ProbeResultValue::Single(ProbeValue::Disk(
-                    disk_readout.0,
-                    disk_readout.1,
-                )))
+                // Note: libmacchina implementation replaced because missing functionality
+                // let disk_readout = general_readout().disk_space()?;
+                // Ok(ProbeResultValue::Single(ProbeValue::Disk(
+                //     disk_readout.0,
+                //     disk_readout.1,
+                // )))
+
+                let disks = Disks::new_with_refreshed_list();
+                Ok(ProbeResultValue::Multiple(
+                    disks
+                        .iter()
+                        .map(|disk| ProbeValue::Disk(
+                            disk.mount_point().to_path_buf(),
+                            disk.available_space(),
+                            disk.total_space()
+                        ))
+                        .collect::<Vec<_>>(),
+                ))
             }),
             ProbeType::Battery => Box::new(|| {
                 Ok(ProbeResultValue::Single(ProbeValue::Battery(
