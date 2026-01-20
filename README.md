@@ -1,6 +1,6 @@
 # ffetch
 
-Fast, featureful, cross-platform fetching tool written in Rust.
+Fast, universal, cross-platform fetching tool written in Rust.
 
 Perfect for sharing your [rice](https://www.reddit.com/r/unixporn/) or showing stats on terminal startup.
 
@@ -21,7 +21,7 @@ Perfect for sharing your [rice](https://www.reddit.com/r/unixporn/) or showing s
 ### Cargo
 
 ```bash
-cargo install ffetch
+cargo install --locked ffetch
 ```
 
 <!-- ### Alpine Linux -->
@@ -103,4 +103,12 @@ A: ffetch uses a modified version of `libmacchina` crate for majority of system-
 
 If you encounter any issues, please open an issue on the GitHub repository.
 
+## Contributing
+
+Feel free to submit an issue or PR on GitHub.
+
+> Notice: Looking for submissions/suggestions of new ASCII arts: <https://github.com/justin13888/ffetch/issues/1>
+
 ## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
