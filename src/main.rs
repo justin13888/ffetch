@@ -1,4 +1,4 @@
-#![feature(type_alias_impl_trait)]
+// #![feature(type_alias_impl_trait)]
 #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
 compile_error!("This crate is only supported on Linux, macOS, and Windows.");
 
