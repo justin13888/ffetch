@@ -13,8 +13,8 @@ Perfect for sharing your [rice](https://www.reddit.com/r/unixporn/) or showing s
 - **Cross-platform**: Covers all three major platforms (Linux, macOS, Windows) and more
 - **Feature-complete**: Includes all features from other tools like `neofetch`, `pfetch`, etc.
 - **Highly customizable**: ffetch provides a wide range of customization options, including themes and ability to replicate various fetch tools.
-- **Modern replacement for neofetch**: ffetch is a modern replacement for [neofetch](https://github.com/dylanaraps/neofetch) with more features and better performance
-- **Focus on first-class support on all platforms**: ffetch aims to provide first-class support on all desktop platforms, including Windows, macOS, and Linux. (Other platforms may be supported given demand.)
+- **Modern replacement for neofetch**: ffetch is a modern replacement for [neofetch](https://github.com/dylanaraps/neofetch) with more features and better performance (negligible for fetch tools but nice to know)
+- **Focus on first-class support on all platforms**: ffetch aims to provide first-class support on all desktop platforms, including Windows, macOS, and Linux. It is distributed as many native package managers.
 
 ## Installation
 
