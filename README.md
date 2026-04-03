@@ -134,7 +134,7 @@ cargo run --release --features profile -- --all
 **Flamegraph** — requires `cargo install flamegraph` and `perf` (Linux):
 
 ```bash
-cargo flamegraph --release -- --all
+cargo flamegraph --profile profiling -- --all
 ```
 
 ## Packaging

@@ -54,6 +54,10 @@ criterion = { version = "0.8.2", features = ["html_reports"] }
 lto = true
 codegen-units = 1
 
+[profile.profiling]
+inherits = "release"
+debug = true
+
 [features]
 openwrt = ["libmacchina/openwrt"]
 profile = ["dep:tracing-chrome"]
