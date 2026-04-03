@@ -114,8 +114,12 @@ impl NeofetchRenderer {
             );
 
             // Build two rows of 8 coloured blocks (3 spaces each with ANSI background colour)
-            let row1: String = (0u8..8).map(|i| format!("\x1b[{}m   \x1b[0m", 40 + i)).collect();
-            let row2: String = (0u8..8).map(|i| format!("\x1b[{}m   \x1b[0m", 100 + i)).collect();
+            let row1: String = (0u8..8)
+                .map(|i| format!("\x1b[{}m   \x1b[0m", 40 + i))
+                .collect();
+            let row2: String = (0u8..8)
+                .map(|i| format!("\x1b[{}m   \x1b[0m", 100 + i))
+                .collect();
 
             println!(
                 "{}   {}",
@@ -180,11 +184,9 @@ impl NeofetchRenderer {
             ProbeValue::TerminalFont(terminal_font) => terminal_font.to_string(),
             ProbeValue::CPU(cpu) => cpu.to_string(),
             ProbeValue::GPU(gpu) => gpu.to_string(),
-            ProbeValue::Memory(used, total) => format!(
-                "{}MiB / {}MiB",
-                *used / 1024,
-                *total / 1024,
-            ),
+            ProbeValue::Memory(used, total) => {
+                format!("{}MiB / {}MiB", *used / 1024, *total / 1024,)
+            }
             ProbeValue::Network(network) => network.to_string(),
             ProbeValue::Bluetooth(bluetooth) => bluetooth.to_string(),
             ProbeValue::BIOS(bios) => bios.to_string(),

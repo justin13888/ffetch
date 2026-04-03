@@ -7,9 +7,9 @@ use std::{
 };
 
 use libmacchina::{
-    traits::{BatteryState, ReadoutError, ShellFormat, ShellKind},
     BatteryReadout, GeneralReadout, KernelReadout, MemoryReadout, NetworkReadout, PackageReadout,
     ProductReadout,
+    traits::{BatteryState, ReadoutError, ShellFormat, ShellKind},
 };
 use serde::{Deserialize, Serialize};
 use sysinfo::{Disks, Users};
@@ -120,17 +120,14 @@ fn detect_terminal_font() -> Result<String, ProbeError> {
     match terminal.as_str() {
         "gnome-terminal-server" | "gnome-terminal" => {
             // Get the default profile ID then query the font setting
-            let profile = gsettings_get(
-                "org.gnome.Terminal.ProfilesList",
-                "default",
-            )?;
+            let profile = gsettings_get("org.gnome.Terminal.ProfilesList", "default")?;
             let schema = format!(
                 "org.gnome.Terminal.Legacy.Profile:/org/gnome/terminal/legacy/profiles:/:{}/",
                 profile
             );
             // Only use custom font if use-custom-command is false (i.e., custom font is enabled)
-            let use_system = gsettings_get(&schema, "use-system-font")
-                .unwrap_or_else(|_| "true".to_string());
+            let use_system =
+                gsettings_get(&schema, "use-system-font").unwrap_or_else(|_| "true".to_string());
             if use_system == "true" {
                 return Err(ProbeError::MetricsUnavailable);
             }
@@ -155,10 +152,10 @@ fn detect_terminal_font() -> Result<String, ProbeError> {
                 format!("{}/.alacritty.yml", home),
             ] {
                 let path = std::path::Path::new(config_path);
-                if path.exists() {
-                    if let Ok(family) = parse_ini_key(path, "family") {
-                        return Ok(family);
-                    }
+                if path.exists()
+                    && let Ok(family) = parse_ini_key(path, "family")
+                {
+                    return Ok(family);
                 }
             }
             Err(ProbeError::MetricsUnavailable)
@@ -378,10 +375,10 @@ impl From<ProbeType> for ProbeResultFunction {
             ProbeType::WMTheme => Box::new(|| {
                 // GNOME (Fedora/Ubuntu default): query WM preferences theme via gsettings
                 // Fallback: parse GTK3 settings.ini
-                let theme = gsettings_get("org.gnome.desktop.wm.preferences", "theme")
-                    .or_else(|_| {
-                        let home = std::env::var("HOME")
-                            .map_err(|_| ProbeError::MetricsUnavailable)?;
+                let theme =
+                    gsettings_get("org.gnome.desktop.wm.preferences", "theme").or_else(|_| {
+                        let home =
+                            std::env::var("HOME").map_err(|_| ProbeError::MetricsUnavailable)?;
                         parse_ini_key(
                             std::path::Path::new(&format!("{}/.config/gtk-3.0/settings.ini", home)),
                             "gtk-theme-name",
@@ -392,10 +389,10 @@ impl From<ProbeType> for ProbeResultFunction {
             ProbeType::Theme => Box::new(|| {
                 // GNOME: query GTK theme via gsettings
                 // Fallback: parse GTK3 settings.ini
-                let theme = gsettings_get("org.gnome.desktop.interface", "gtk-theme")
-                    .or_else(|_| {
-                        let home = std::env::var("HOME")
-                            .map_err(|_| ProbeError::MetricsUnavailable)?;
+                let theme =
+                    gsettings_get("org.gnome.desktop.interface", "gtk-theme").or_else(|_| {
+                        let home =
+                            std::env::var("HOME").map_err(|_| ProbeError::MetricsUnavailable)?;
                         parse_ini_key(
                             std::path::Path::new(&format!("{}/.config/gtk-3.0/settings.ini", home)),
                             "gtk-theme-name",
@@ -406,10 +403,10 @@ impl From<ProbeType> for ProbeResultFunction {
             ProbeType::Icons => Box::new(|| {
                 // GNOME: query icon theme via gsettings
                 // Fallback: parse GTK3 settings.ini
-                let icons = gsettings_get("org.gnome.desktop.interface", "icon-theme")
-                    .or_else(|_| {
-                        let home = std::env::var("HOME")
-                            .map_err(|_| ProbeError::MetricsUnavailable)?;
+                let icons =
+                    gsettings_get("org.gnome.desktop.interface", "icon-theme").or_else(|_| {
+                        let home =
+                            std::env::var("HOME").map_err(|_| ProbeError::MetricsUnavailable)?;
                         parse_ini_key(
                             std::path::Path::new(&format!("{}/.config/gtk-3.0/settings.ini", home)),
                             "gtk-icon-theme-name",
