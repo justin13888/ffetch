@@ -74,9 +74,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _chrome_guard = {
         use tracing_chrome::ChromeLayerBuilder;
         use tracing_subscriber::prelude::*;
-        let (chrome_layer, guard) = ChromeLayerBuilder::new()
-            .file("ffetch-trace.json")
-            .build();
+        let (chrome_layer, guard) = ChromeLayerBuilder::new().file("ffetch-trace.json").build();
         tracing_subscriber::registry().with(chrome_layer).init();
         guard
     };
