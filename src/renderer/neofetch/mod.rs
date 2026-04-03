@@ -1,5 +1,5 @@
 use console::style;
-use tracing::debug;
+use tracing::{debug, info_span};
 
 use crate::{
     ascii::{get_ascii_art, get_distro_color, get_filler},
@@ -81,6 +81,7 @@ impl NeofetchRenderer {
 
         // Render probes
         for (title, probe) in &self.probe_list {
+            let _span = info_span!("probe", name = %title).entered();
             let title = format!("{:width$}:", title, width = max_title_len);
             let results = match probe() {
                 Ok(result) => match result {

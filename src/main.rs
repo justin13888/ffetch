@@ -7,15 +7,10 @@ use std::path::PathBuf;
 use clap::{ArgGroup, Parser, Subcommand};
 use tracing::{Level, debug, info};
 
-use crate::{
+use ffetch_lib::{
     config::{Config, RendererOverride},
     renderer::{macchina::MacchinaRenderer, neofetch::NeofetchRenderer},
 };
-
-pub mod ascii;
-pub mod config;
-pub mod probe;
-pub mod renderer;
 
 // TODO: Include 'libmacchina' version in version command
 #[derive(Parser, Debug)]
@@ -75,6 +70,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let verbose = args.verbose;
 
     // Initialize logger
+    #[cfg(feature = "profile")]
+    let _chrome_guard = {
+        use tracing_chrome::ChromeLayerBuilder;
+        use tracing_subscriber::prelude::*;
+        let (chrome_layer, guard) = ChromeLayerBuilder::new()
+            .file("ffetch-trace.json")
+            .build();
+        tracing_subscriber::registry().with(chrome_layer).init();
+        guard
+    };
+
+    #[cfg(not(feature = "profile"))]
     match verbose {
         true => {
             tracing_subscriber::fmt()

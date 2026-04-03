@@ -6,6 +6,8 @@ use std::{
     sync::OnceLock,
 };
 
+use tracing::debug_span;
+
 use libmacchina::{
     BatteryReadout, GeneralReadout, KernelReadout, MemoryReadout, NetworkReadout, PackageReadout,
     ProductReadout,
@@ -18,47 +20,69 @@ use thiserror::Error;
 pub fn battery_readout() -> &'static BatteryReadout {
     use libmacchina::traits::BatteryReadout as _;
     static COMPUTATION: OnceLock<BatteryReadout> = OnceLock::new();
-    COMPUTATION.get_or_init(BatteryReadout::new)
+    COMPUTATION.get_or_init(|| {
+        let _span = debug_span!("init_readout", kind = "battery").entered();
+        BatteryReadout::new()
+    })
 }
 
 pub fn kernel_readout() -> &'static KernelReadout {
     use libmacchina::traits::KernelReadout as _;
     static COMPUTATION: OnceLock<KernelReadout> = OnceLock::new();
-    COMPUTATION.get_or_init(KernelReadout::new)
+    COMPUTATION.get_or_init(|| {
+        let _span = debug_span!("init_readout", kind = "kernel").entered();
+        KernelReadout::new()
+    })
 }
 
 pub fn memory_readout() -> &'static MemoryReadout {
     use libmacchina::traits::MemoryReadout as _;
     static COMPUTATION: OnceLock<MemoryReadout> = OnceLock::new();
-    COMPUTATION.get_or_init(MemoryReadout::new)
+    COMPUTATION.get_or_init(|| {
+        let _span = debug_span!("init_readout", kind = "memory").entered();
+        MemoryReadout::new()
+    })
 }
 
 pub fn general_readout() -> &'static GeneralReadout {
     use libmacchina::traits::GeneralReadout as _;
     static COMPUTATION: OnceLock<GeneralReadout> = OnceLock::new();
-    COMPUTATION.get_or_init(GeneralReadout::new)
+    COMPUTATION.get_or_init(|| {
+        let _span = debug_span!("init_readout", kind = "general").entered();
+        GeneralReadout::new()
+    })
 }
 
 pub fn product_readout() -> &'static ProductReadout {
     use libmacchina::traits::ProductReadout as _;
     static COMPUTATION: OnceLock<ProductReadout> = OnceLock::new();
-    COMPUTATION.get_or_init(ProductReadout::new)
+    COMPUTATION.get_or_init(|| {
+        let _span = debug_span!("init_readout", kind = "product").entered();
+        ProductReadout::new()
+    })
 }
 
 pub fn package_readout() -> &'static PackageReadout {
     use libmacchina::traits::PackageReadout as _;
     static COMPUTATION: OnceLock<PackageReadout> = OnceLock::new();
-    COMPUTATION.get_or_init(PackageReadout::new)
+    COMPUTATION.get_or_init(|| {
+        let _span = debug_span!("init_readout", kind = "package").entered();
+        PackageReadout::new()
+    })
 }
 
 pub fn network_readout() -> &'static NetworkReadout {
     use libmacchina::traits::NetworkReadout as _;
     static COMPUTATION: OnceLock<NetworkReadout> = OnceLock::new();
-    COMPUTATION.get_or_init(NetworkReadout::new)
+    COMPUTATION.get_or_init(|| {
+        let _span = debug_span!("init_readout", kind = "network").entered();
+        NetworkReadout::new()
+    })
 }
 
 /// Run `gsettings get <schema> <key>` and return the trimmed output with surrounding quotes removed.
 fn gsettings_get(schema: &str, key: &str) -> Result<String, ProbeError> {
+    let _span = debug_span!("subprocess", cmd = "gsettings").entered();
     let output = Command::new("gsettings")
         .args(["get", schema, key])
         .output()
@@ -78,6 +102,7 @@ fn gsettings_get(schema: &str, key: &str) -> Result<String, ProbeError> {
 
 /// Run a command and return stdout trimmed, or Err if it fails or produces empty output.
 fn run_command(cmd: &str, args: &[&str]) -> Result<String, ProbeError> {
+    let _span = debug_span!("subprocess", cmd = %cmd).entered();
     let output = Command::new(cmd)
         .args(args)
         .output()

@@ -94,6 +94,49 @@ Install lefthook and set up the hooks:
 lefthook install
 ```
 
+### Benchmarking
+
+#### End-to-end comparison (hyperfine)
+
+Requires [hyperfine](https://github.com/sharkdp/hyperfine). Compares ffetch against any of neofetch, macchina, and fastfetch that are installed.
+
+```bash
+bash scripts/bench-compare.sh           # warm benchmark
+bash scripts/bench-compare.sh --cold    # also cold-cache (requires sudo)
+```
+
+Results are written to `bench-results.json` and `bench-results.md`.
+
+#### Probe microbenchmarks (criterion)
+
+Benchmarks each probe individually, grouped by expected cost (fast, I/O-heavy, subprocess). Also measures the cold construction cost of each `libmacchina` readout.
+
+```bash
+cargo bench
+```
+
+HTML reports are written to `target/criterion/`.
+
+#### Runtime profiling
+
+**Tracing spans** — prints per-probe and per-subprocess timing at `debug` level:
+
+```bash
+RUST_LOG=debug cargo run --release -- --all
+```
+
+**Chrome trace** — produces `ffetch-trace.json` viewable in [Perfetto](https://ui.perfetto.dev):
+
+```bash
+cargo run --release --features profile -- --all
+```
+
+**Flamegraph** — requires `cargo install flamegraph` and `perf` (Linux):
+
+```bash
+cargo flamegraph --release -- --all
+```
+
 ## Packaging
 
 <!-- TODO: Include repology widget of all repo version states -->

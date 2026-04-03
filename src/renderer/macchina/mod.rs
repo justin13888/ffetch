@@ -1,5 +1,5 @@
 use console::style;
-use tracing::debug;
+use tracing::{debug, info_span};
 
 use crate::{
     ascii::{get_ascii_art, get_distro_color, get_filler},
@@ -10,6 +10,7 @@ use crate::{
 use super::RendererError;
 
 pub struct MacchinaRenderer {
+    #[allow(dead_code)]
     config: MacchinaRendererConfig,
     probe_list: ProbeList,
 }
@@ -61,6 +62,7 @@ impl MacchinaRenderer {
         let mut art_iter = ascii_art.iter();
 
         for (title, probe) in &self.probe_list {
+            let _span = info_span!("probe", name = %title).entered();
             let results: Vec<String> = match probe() {
                 Ok(result) => match result {
                     ProbeResultValue::Single(value) => vec![Self::probe_config_to_string(&value)],

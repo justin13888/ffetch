@@ -1,1 +1,4 @@
 /target
+bench-results.*
+bench-cold-results.*
+ffetch-trace.json
