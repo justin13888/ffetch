@@ -4,7 +4,7 @@ pre-commit:
     fmt:
       run: cargo fmt
     clippy-fix:
-      run: cargo clippy --fix --allow-dirty --allow-staged
+      run: cargo clippy --fix --allow-dirty --allow-staged && cargo clippy
     check-changes:
       run: |
         if ! git diff --exit-code --quiet; then
