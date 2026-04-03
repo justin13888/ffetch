@@ -1,0 +1,22 @@
+pre-commit:
+  piped: true
+  commands:
+    fmt:
+      run: cargo fmt
+    clippy-fix:
+      run: cargo clippy --fix --allow-dirty --allow-staged
+    check-changes:
+      run: |
+        if ! git diff --exit-code --quiet; then
+          echo "Files were modified by cargo fmt or cargo clippy --fix. Please review and re-stage the changes."
+          exit 1
+        fi
+
+pre-push:
+  commands:
+    fmt-check:
+      run: cargo fmt --check
+    clippy:
+      run: cargo clippy
+    test:
+      run: cargo test

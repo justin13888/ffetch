@@ -84,6 +84,16 @@ To install via Git, follow these steps:
 - Run `cargo build` to build the project
 - Use `cargo run` to run the project
 
+### Git Hooks
+
+This project uses [lefthook](https://github.com/evilmartians/lefthook) to manage git hooks.
+
+Install lefthook and set up the hooks:
+
+```bash
+lefthook install
+```
+
 ## Packaging
 
 <!-- TODO: Include repology widget of all repo version states -->
