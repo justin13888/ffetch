@@ -158,69 +158,69 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Fetch config, otherwise use default
     // TODO: Fix so arguments only change the default renderer and not set the default config
     let config = {
-    let _span = info_span!("config_load").entered();
-    if args.all {
-        // Use default all presets
-        if args.neofetch {
-            debug!("Using neofetch all preset");
-            Config::default_neofetch_all()
-        } else if args.macchina {
-            debug!("Using macchina all preset");
-            Config::default_macchina_all()
+        let _span = info_span!("config_load").entered();
+        if args.all {
+            // Use default all presets
+            if args.neofetch {
+                debug!("Using neofetch all preset");
+                Config::default_neofetch_all()
+            } else if args.macchina {
+                debug!("Using macchina all preset");
+                Config::default_macchina_all()
+            } else {
+                debug!("Using default all preset");
+                Config::default_all()
+            }
         } else {
-            debug!("Using default all preset");
-            Config::default_all()
-        }
-    } else {
-        // Determine config path
-        let config_path = match args.config {
-            Some(config_path) => {
-                // Custom config file was provided
-                debug!("Using custom config path: {:?}", config_path);
-                config_path
-            }
-            None => {
-                // Search at default config path
-                let default_config_path = Config::get_config_dir()
-                    .expect("Could not determine config directory")
-                    .join(Config::CONFIG_FILE_NAME);
-                debug!("Using default config path: {:?}", default_config_path);
+            // Determine config path
+            let config_path = match args.config {
+                Some(config_path) => {
+                    // Custom config file was provided
+                    debug!("Using custom config path: {:?}", config_path);
+                    config_path
+                }
+                None => {
+                    // Search at default config path
+                    let default_config_path = Config::get_config_dir()
+                        .expect("Could not determine config directory")
+                        .join(Config::CONFIG_FILE_NAME);
+                    debug!("Using default config path: {:?}", default_config_path);
 
-                default_config_path
-            }
-        };
+                    default_config_path
+                }
+            };
 
-        // Verify config file exists
-        match config_path.try_exists() {
-            Ok(true) => {
-                // Load config from file
-                Config::from_file(
-                    &config_path,
-                    if args.neofetch {
-                        debug!("Overriding neofetch renderer");
-                        Some(RendererOverride::Neofetch)
-                    } else if args.macchina {
-                        debug!("Overriding macchina renderer");
-                        Some(RendererOverride::Macchina)
-                    } else {
-                        debug!("Using config from default path");
-                        None
-                    },
-                )?
-            }
-            Ok(false) => {
-                debug!("No config dir found, using default config");
-                Config::default()
-            }
-            Err(e) => {
-                info!(
-                    "Using default config. Error checking for config dir: {:?}",
-                    e
-                );
-                Config::default()
+            // Verify config file exists
+            match config_path.try_exists() {
+                Ok(true) => {
+                    // Load config from file
+                    Config::from_file(
+                        &config_path,
+                        if args.neofetch {
+                            debug!("Overriding neofetch renderer");
+                            Some(RendererOverride::Neofetch)
+                        } else if args.macchina {
+                            debug!("Overriding macchina renderer");
+                            Some(RendererOverride::Macchina)
+                        } else {
+                            debug!("Using config from default path");
+                            None
+                        },
+                    )?
+                }
+                Ok(false) => {
+                    debug!("No config dir found, using default config");
+                    Config::default()
+                }
+                Err(e) => {
+                    info!(
+                        "Using default config. Error checking for config dir: {:?}",
+                        e
+                    );
+                    Config::default()
+                }
             }
         }
-    }
     };
 
     debug!("Config: {:?}", config);
