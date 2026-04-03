@@ -5,13 +5,14 @@ compile_error!("This crate is only supported on Linux, macOS, and Windows.");
 use std::path::PathBuf;
 
 use clap::{ArgGroup, Parser, Subcommand};
-use tracing::{debug, info, Level};
+use tracing::{Level, debug, info};
 
 use crate::{
     config::{Config, RendererOverride},
     renderer::{macchina::MacchinaRenderer, neofetch::NeofetchRenderer},
 };
 
+pub mod ascii;
 pub mod config;
 pub mod probe;
 pub mod renderer;

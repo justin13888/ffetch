@@ -1,6 +1,8 @@
 use std::{
     fmt::{self, Display, Formatter},
+    io::{BufRead, BufReader},
     path::PathBuf,
+    process::Command,
     sync::OnceLock,
 };
 
@@ -53,6 +55,121 @@ pub fn network_readout() -> &'static NetworkReadout {
     use libmacchina::traits::NetworkReadout as _;
     static COMPUTATION: OnceLock<NetworkReadout> = OnceLock::new();
     COMPUTATION.get_or_init(NetworkReadout::new)
+}
+
+/// Run `gsettings get <schema> <key>` and return the trimmed output with surrounding quotes removed.
+fn gsettings_get(schema: &str, key: &str) -> Result<String, ProbeError> {
+    let output = Command::new("gsettings")
+        .args(["get", schema, key])
+        .output()
+        .map_err(|_| ProbeError::MetricsUnavailable)?;
+    if !output.status.success() {
+        return Err(ProbeError::MetricsUnavailable);
+    }
+    let value = String::from_utf8_lossy(&output.stdout)
+        .trim()
+        .trim_matches('\'')
+        .to_string();
+    if value.is_empty() {
+        return Err(ProbeError::MetricsUnavailable);
+    }
+    Ok(value)
+}
+
+/// Run a command and return stdout trimmed, or Err if it fails or produces empty output.
+fn run_command(cmd: &str, args: &[&str]) -> Result<String, ProbeError> {
+    let output = Command::new(cmd)
+        .args(args)
+        .output()
+        .map_err(|_| ProbeError::MetricsUnavailable)?;
+    if !output.status.success() {
+        return Err(ProbeError::MetricsUnavailable);
+    }
+    let value = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if value.is_empty() {
+        Err(ProbeError::MetricsUnavailable)
+    } else {
+        Ok(value)
+    }
+}
+
+/// Parse a key from an INI-style config file (searches all sections).
+fn parse_ini_key(path: &std::path::Path, key: &str) -> Result<String, ProbeError> {
+    let file = std::fs::File::open(path).map_err(|_| ProbeError::MetricsUnavailable)?;
+    let needle = format!("{}=", key);
+    for line in BufReader::new(file).lines().map_while(Result::ok) {
+        let trimmed = line.trim();
+        if let Some(value) = trimmed.strip_prefix(&needle) {
+            let v = value.trim().to_string();
+            if !v.is_empty() {
+                return Ok(v);
+            }
+        }
+    }
+    Err(ProbeError::MetricsUnavailable)
+}
+
+fn detect_terminal_font() -> Result<String, ProbeError> {
+    use libmacchina::traits::GeneralReadout as _;
+    let terminal = general_readout()
+        .terminal()
+        .map_err(|_| ProbeError::MetricsUnavailable)?
+        .trim()
+        .to_lowercase();
+
+    match terminal.as_str() {
+        "gnome-terminal-server" | "gnome-terminal" => {
+            // Get the default profile ID then query the font setting
+            let profile = gsettings_get(
+                "org.gnome.Terminal.ProfilesList",
+                "default",
+            )?;
+            let schema = format!(
+                "org.gnome.Terminal.Legacy.Profile:/org/gnome/terminal/legacy/profiles:/:{}/",
+                profile
+            );
+            // Only use custom font if use-custom-command is false (i.e., custom font is enabled)
+            let use_system = gsettings_get(&schema, "use-system-font")
+                .unwrap_or_else(|_| "true".to_string());
+            if use_system == "true" {
+                return Err(ProbeError::MetricsUnavailable);
+            }
+            gsettings_get(&schema, "font")
+        }
+        "kgx" | "gnome-console" => {
+            // GNOME Console uses system font by default; only has a font if customized
+            let use_system = gsettings_get("org.gnome.Console", "use-system-font")
+                .unwrap_or_else(|_| "true".to_string());
+            if use_system == "true" {
+                return Err(ProbeError::MetricsUnavailable);
+            }
+            gsettings_get("org.gnome.Console", "custom-font")
+        }
+        "alacritty" => {
+            let home = std::env::var("HOME").map_err(|_| ProbeError::MetricsUnavailable)?;
+            // Try TOML config first, then YAML
+            for config_path in &[
+                format!("{}/.config/alacritty/alacritty.toml", home),
+                format!("{}/.alacritty.toml", home),
+                format!("{}/.config/alacritty/alacritty.yml", home),
+                format!("{}/.alacritty.yml", home),
+            ] {
+                let path = std::path::Path::new(config_path);
+                if path.exists() {
+                    if let Ok(family) = parse_ini_key(path, "family") {
+                        return Ok(family);
+                    }
+                }
+            }
+            Err(ProbeError::MetricsUnavailable)
+        }
+        "kitty" => {
+            let home = std::env::var("HOME").map_err(|_| ProbeError::MetricsUnavailable)?;
+            let config_path = format!("{}/.config/kitty/kitty.conf", home);
+            parse_ini_key(std::path::Path::new(&config_path), "font_family")
+        }
+        _ => Err(ProbeError::MetricsUnavailable),
+    }
 }
 
 // TODO: Complete the rest of doc comments for this enum vv
@@ -237,7 +354,12 @@ impl From<ProbeType> for ProbeResultFunction {
                         .to_string(),
                 )))
             }),
-            ProbeType::Editor => Box::new(|| Err(ProbeError::Unimplemented)), // TODO
+            ProbeType::Editor => Box::new(|| {
+                let editor = std::env::var("VISUAL")
+                    .or_else(|_| std::env::var("EDITOR"))
+                    .map_err(|_| ProbeError::MetricsUnavailable)?;
+                Ok(ProbeResultValue::Single(ProbeValue::Editor(editor)))
+            }),
             ProbeType::Resolution => Box::new(|| {
                 Ok(ProbeResultValue::Single(ProbeValue::Resolution(
                     general_readout().resolution()?,
@@ -254,29 +376,56 @@ impl From<ProbeType> for ProbeResultFunction {
                 )))
             }),
             ProbeType::WMTheme => Box::new(|| {
-                Ok(ProbeResultValue::Single(ProbeValue::WMTheme(
-                    "".to_string(), // TODO
-                )))
+                // GNOME (Fedora/Ubuntu default): query WM preferences theme via gsettings
+                // Fallback: parse GTK3 settings.ini
+                let theme = gsettings_get("org.gnome.desktop.wm.preferences", "theme")
+                    .or_else(|_| {
+                        let home = std::env::var("HOME")
+                            .map_err(|_| ProbeError::MetricsUnavailable)?;
+                        parse_ini_key(
+                            std::path::Path::new(&format!("{}/.config/gtk-3.0/settings.ini", home)),
+                            "gtk-theme-name",
+                        )
+                    })?;
+                Ok(ProbeResultValue::Single(ProbeValue::WMTheme(theme)))
             }),
-
-            ProbeType::Theme => {
-                Box::new(|| Ok(ProbeResultValue::Single(ProbeValue::Theme("".to_string()))))
-            } // TODO
-            ProbeType::Icons => {
-                Box::new(|| Ok(ProbeResultValue::Single(ProbeValue::Icons("".to_string()))))
-            } // TODO
-            ProbeType::Cursor => {
-                Box::new(|| Ok(ProbeResultValue::Single(ProbeValue::Cursor("".to_string()))))
-            } // TODO
+            ProbeType::Theme => Box::new(|| {
+                // GNOME: query GTK theme via gsettings
+                // Fallback: parse GTK3 settings.ini
+                let theme = gsettings_get("org.gnome.desktop.interface", "gtk-theme")
+                    .or_else(|_| {
+                        let home = std::env::var("HOME")
+                            .map_err(|_| ProbeError::MetricsUnavailable)?;
+                        parse_ini_key(
+                            std::path::Path::new(&format!("{}/.config/gtk-3.0/settings.ini", home)),
+                            "gtk-theme-name",
+                        )
+                    })?;
+                Ok(ProbeResultValue::Single(ProbeValue::Theme(theme)))
+            }),
+            ProbeType::Icons => Box::new(|| {
+                // GNOME: query icon theme via gsettings
+                // Fallback: parse GTK3 settings.ini
+                let icons = gsettings_get("org.gnome.desktop.interface", "icon-theme")
+                    .or_else(|_| {
+                        let home = std::env::var("HOME")
+                            .map_err(|_| ProbeError::MetricsUnavailable)?;
+                        parse_ini_key(
+                            std::path::Path::new(&format!("{}/.config/gtk-3.0/settings.ini", home)),
+                            "gtk-icon-theme-name",
+                        )
+                    })?;
+                Ok(ProbeResultValue::Single(ProbeValue::Icons(icons)))
+            }),
+            ProbeType::Cursor => Box::new(|| Err(ProbeError::Unimplemented)),
             ProbeType::Terminal => Box::new(|| {
                 Ok(ProbeResultValue::Single(ProbeValue::Terminal(
                     general_readout().terminal()?.trim().to_string(),
                 )))
             }),
             ProbeType::TerminalFont => Box::new(|| {
-                Ok(ProbeResultValue::Single(ProbeValue::TerminalFont(
-                    "".to_string(), // TODO
-                )))
+                let font = detect_terminal_font()?;
+                Ok(ProbeResultValue::Single(ProbeValue::TerminalFont(font)))
             }),
             ProbeType::CPU => Box::new(|| {
                 Ok(ProbeResultValue::Single(ProbeValue::CPU(
@@ -298,24 +447,10 @@ impl From<ProbeType> for ProbeResultFunction {
                     memory_readout().total()?,
                 )))
             }),
-            ProbeType::Network => Box::new(|| {
-                Ok(ProbeResultValue::Single(ProbeValue::Network(
-                    "".to_string(), // TODO
-                )))
-            }),
-            ProbeType::Bluetooth => Box::new(|| {
-                Ok(ProbeResultValue::Single(ProbeValue::Bluetooth(
-                    "".to_string(), // TODO
-                )))
-            }),
-            ProbeType::BIOS => {
-                Box::new(|| Ok(ProbeResultValue::Single(ProbeValue::BIOS("".to_string()))))
-            }
-            ProbeType::GPUDriver => Box::new(|| {
-                Ok(ProbeResultValue::Single(ProbeValue::GPUDriver(
-                    "".to_string(), // TODO
-                )))
-            }),
+            ProbeType::Network => Box::new(|| Err(ProbeError::Unimplemented)),
+            ProbeType::Bluetooth => Box::new(|| Err(ProbeError::Unimplemented)),
+            ProbeType::BIOS => Box::new(|| Err(ProbeError::Unimplemented)),
+            ProbeType::GPUDriver => Box::new(|| Err(ProbeError::Unimplemented)),
             ProbeType::CPUUsage => Box::new(|| {
                 Ok(ProbeResultValue::Single(ProbeValue::CPUUsage(
                     general_readout().cpu_usage()?,
@@ -336,7 +471,7 @@ impl From<ProbeType> for ProbeResultFunction {
                         .map(|disk| {
                             ProbeValue::Disk(
                                 disk.mount_point().to_path_buf(),
-                                disk.available_space(),
+                                disk.total_space().saturating_sub(disk.available_space()),
                                 disk.total_space(),
                             )
                         })
@@ -357,22 +492,14 @@ impl From<ProbeType> for ProbeResultFunction {
                     },
                 )))
             }),
-            ProbeType::Font => {
-                Box::new(|| Ok(ProbeResultValue::Single(ProbeValue::Font("".to_string()))))
-            } // TODO
-            ProbeType::Song => {
-                Box::new(|| Ok(ProbeResultValue::Single(ProbeValue::Song("".to_string()))))
-            } // TODO
+            ProbeType::Font => Box::new(|| Err(ProbeError::Unimplemented)),
+            ProbeType::Song => Box::new(|| Err(ProbeError::Unimplemented)),
             ProbeType::LocalIP => Box::new(|| {
                 Ok(ProbeResultValue::Single(ProbeValue::LocalIP(
                     network_readout().logical_address(None)?,
                 )))
-            }), // TODO
-            ProbeType::PublicIP => Box::new(|| {
-                Ok(ProbeResultValue::Single(ProbeValue::PublicIP(
-                    "".to_string(), // TODO
-                )))
             }),
+            ProbeType::PublicIP => Box::new(|| Err(ProbeError::Unimplemented)),
             ProbeType::Users => Box::new(|| {
                 Ok(ProbeResultValue::Single(ProbeValue::Users(
                     // TODO: Evaluate, whether we should make determining user platform dependent (may be unreliable currently)
@@ -386,28 +513,41 @@ impl From<ProbeType> for ProbeResultFunction {
                         .collect::<Vec<_>>(),
                 )))
             }),
-            ProbeType::Locale => {
-                Box::new(|| Ok(ProbeResultValue::Single(ProbeValue::Locale("".to_string()))))
-            } // TODO
+            ProbeType::Locale => Box::new(|| {
+                let locale = std::env::var("LANG")
+                    .or_else(|_| std::env::var("LC_ALL"))
+                    .map_err(|_| ProbeError::MetricsUnavailable)?;
+                Ok(ProbeResultValue::Single(ProbeValue::Locale(locale)))
+            }),
             ProbeType::Java => Box::new(|| {
-                Ok(ProbeResultValue::Single(ProbeValue::Java(
-                    "N/A".to_string(), // TODO
-                )))
+                // java -version writes to stderr
+                let output = Command::new("java")
+                    .arg("-version")
+                    .output()
+                    .map_err(|_| ProbeError::MetricsUnavailable)?;
+                let version = String::from_utf8_lossy(&output.stderr)
+                    .lines()
+                    .next()
+                    .unwrap_or("")
+                    .trim()
+                    .to_string();
+                if version.is_empty() {
+                    return Err(ProbeError::MetricsUnavailable);
+                }
+                Ok(ProbeResultValue::Single(ProbeValue::Java(version)))
             }),
             ProbeType::Python => Box::new(|| {
-                Ok(ProbeResultValue::Single(ProbeValue::Python(
-                    "N/A".to_string(), // TODO
-                )))
+                let version = run_command("python3", &["--version"])
+                    .or_else(|_| run_command("python", &["--version"]))?;
+                Ok(ProbeResultValue::Single(ProbeValue::Python(version)))
             }),
             ProbeType::Node => Box::new(|| {
-                Ok(ProbeResultValue::Single(ProbeValue::Node(
-                    "N/A".to_string(), // TODO
-                )))
+                let version = run_command("node", &["--version"])?;
+                Ok(ProbeResultValue::Single(ProbeValue::Node(version)))
             }),
             ProbeType::Rust => Box::new(|| {
-                Ok(ProbeResultValue::Single(ProbeValue::Rust(
-                    "N/A".to_string(), // TODO
-                )))
+                let version = run_command("rustc", &["--version"])?;
+                Ok(ProbeResultValue::Single(ProbeValue::Rust(version)))
             }),
         }
     }

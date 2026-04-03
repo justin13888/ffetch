@@ -3,10 +3,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::{
-    probe::{ProbeResultFunction, ProbeType},
-    renderer::macchina::MacchinaRenderer,
-};
+use crate::probe::{ProbeResultFunction, ProbeType};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub enum Config {
@@ -279,22 +276,17 @@ impl ProbeConfig {
             Self::Uptime("Uptime".to_string()),
             Self::Packages("Packages".to_string()),
             Self::Shell("Shell".to_string()),
-            Self::Editor("Editor".to_string()),
             Self::Resolution("Resolution".to_string()),
             Self::DE("DE".to_string()),
             Self::WM("WM".to_string()),
             Self::WMTheme("WM Theme".to_string()),
             Self::Theme("Theme".to_string()),
             Self::Icons("Icons".to_string()),
-            Self::Cursor("Cursor".to_string()),
             Self::Terminal("Terminal".to_string()),
             Self::TerminalFont("Terminal Font".to_string()),
             Self::CPU("CPU".to_string()),
             Self::GPU("GPU".to_string()),
             Self::Memory("Memory".to_string()),
-            Self::Network("Network".to_string()),
-            Self::Bluetooth("Bluetooth".to_string()),
-            Self::BIOS("BIOS".to_string()),
         ]
     }
 

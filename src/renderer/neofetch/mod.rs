@@ -2,15 +2,12 @@ use console::style;
 use tracing::debug;
 
 use crate::{
+    ascii::{get_ascii_art, get_distro_color, get_filler},
     config::NeofetchRendererConfig,
-    probe::{general_readout, ProbeList, ProbeResultValue, ProbeValue},
+    probe::{ProbeList, ProbeResultValue, ProbeValue, general_readout},
 };
 
-use self::ascii::primary;
-
 use super::RendererError;
-
-mod ascii;
 
 pub struct NeofetchRenderer {
     config: NeofetchRendererConfig,
@@ -33,8 +30,22 @@ impl NeofetchRenderer {
         Self { config, probe_list }
     }
 
-    // TODO: Reimplement to render out of order using crossterm
     pub fn draw(&self) -> Result<(), RendererError> {
+        use libmacchina::traits::GeneralReadout as _;
+
+        // Detect the current distro
+        let distro = general_readout()
+            .distribution()
+            .or_else(|_| general_readout().os_name())
+            .unwrap_or_else(|_| "Linux".to_string());
+
+        debug!("Detected distro: {}", distro);
+
+        // Get ASCII art for this distro
+        let (ascii_art, ascii_width) = get_ascii_art(&distro);
+        let primary_color = get_distro_color(&distro);
+        let filler = get_filler(ascii_width);
+
         let max_title_len = self
             .probe_list
             .iter()
@@ -42,40 +53,33 @@ impl NeofetchRenderer {
             .max()
             .unwrap_or(0);
 
-        // TODO: Render title and underline
-        // TODO: replace vv to detect platform
-        let mut art_iter = ascii::ASCII_ART_UBUNTU.iter();
+        let mut art_iter = ascii_art.iter();
 
+        // Render title (username@hostname)
         let mut title_len = 0;
         if self.config.title {
-            use libmacchina::traits::GeneralReadout as _;
-
             let username = general_readout().username()?;
             let hostname = general_readout().hostname()?;
             title_len = username.len() + hostname.len() + 1;
             println!(
                 "{}   {}@{}",
-                match art_iter.next() {
-                    Some(art) => art,
-                    None => ascii::ASCII_ART_UBUNTU_FILLER,
-                },
-                style(username).fg(primary()),
-                style(hostname).fg(primary()),
+                style(art_iter.next().unwrap_or(&filler.as_str())).fg(primary_color),
+                style(&username).fg(primary_color),
+                style(&hostname).fg(primary_color),
             );
         }
 
+        // Render underline
         if self.config.underline {
             let underline = "-".repeat(title_len);
             println!(
                 "{}   {}",
-                match art_iter.next() {
-                    Some(art) => art,
-                    None => ascii::ASCII_ART_UBUNTU_FILLER,
-                },
+                style(art_iter.next().unwrap_or(&filler.as_str())).fg(primary_color),
                 underline
             );
         }
 
+        // Render probes
         for (title, probe) in &self.probe_list {
             let title = format!("{:width$}:", title, width = max_title_len);
             let results = match probe() {
@@ -94,20 +98,41 @@ impl NeofetchRenderer {
             results.into_iter().for_each(|result| {
                 println!(
                     "{}   {} {}",
-                    match art_iter.next() {
-                        Some(art) => art,
-                        None => ascii::ASCII_ART_UBUNTU_FILLER,
-                    },
-                    style(title.clone()).fg(primary()),
+                    style(art_iter.next().unwrap_or(&filler.as_str())).fg(primary_color),
+                    style(title.clone()).fg(primary_color),
                     result
                 );
             });
         }
 
-        // TODO: Render neofetch colour block below
-        // if config.col {
-        //     todo!()
-        // }
+        // Render neofetch colour blocks
+        if self.config.col {
+            // Empty spacer line between probes and colour blocks
+            println!(
+                "{}",
+                style(art_iter.next().unwrap_or(&filler.as_str())).fg(primary_color)
+            );
+
+            // Build two rows of 8 coloured blocks (3 spaces each with ANSI background colour)
+            let row1: String = (0u8..8).map(|i| format!("\x1b[{}m   \x1b[0m", 40 + i)).collect();
+            let row2: String = (0u8..8).map(|i| format!("\x1b[{}m   \x1b[0m", 100 + i)).collect();
+
+            println!(
+                "{}   {}",
+                style(art_iter.next().unwrap_or(&filler.as_str())).fg(primary_color),
+                row1
+            );
+            println!(
+                "{}   {}",
+                style(art_iter.next().unwrap_or(&filler.as_str())).fg(primary_color),
+                row2
+            );
+        }
+
+        // Print remaining ASCII art lines
+        for art_line in art_iter {
+            println!("{}", style(art_line).fg(primary_color));
+        }
 
         Ok(())
     }
@@ -122,20 +147,19 @@ impl NeofetchRenderer {
             ProbeValue::Kernel(kernel) => kernel.to_string(),
             ProbeValue::Uptime(uptime) => {
                 let uptime = *uptime as f64;
-                let days = (uptime / (60.0 * 60.0 * 24.0)).round() as i32;
-                let hours = ((uptime / (60.0 * 60.0)) % 24.0).round() as i32;
-                let minutes = ((uptime / 60.0) % 60.0).round() as i32;
-                let seconds = (uptime % 60.0).round() as i32;
-                let _res = String::new();
+                let days = (uptime / (60.0 * 60.0 * 24.0)).floor() as i32;
+                let hours = ((uptime / (60.0 * 60.0)) % 24.0).floor() as i32;
+                let minutes = ((uptime / 60.0) % 60.0).floor() as i32;
+                let seconds = (uptime % 60.0).floor() as i32;
 
                 if days > 0 {
-                    format!("{:.0} days, {:.0} hours, {:.0} mins", days, hours, minutes)
+                    format!("{} days, {} hours, {} mins", days, hours, minutes)
                 } else if hours > 0 {
-                    format!("{:.0} hours, {:.0} mins", hours, minutes)
+                    format!("{} hours, {} mins", hours, minutes)
                 } else if minutes > 0 {
-                    format!("{:.0} mins", minutes)
+                    format!("{} mins", minutes)
                 } else {
-                    format!("{:.0} seconds", seconds)
+                    format!("{} seconds", seconds)
                 }
             }
             ProbeValue::Packages(counts) => counts
@@ -156,22 +180,22 @@ impl NeofetchRenderer {
             ProbeValue::TerminalFont(terminal_font) => terminal_font.to_string(),
             ProbeValue::CPU(cpu) => cpu.to_string(),
             ProbeValue::GPU(gpu) => gpu.to_string(),
-            ProbeValue::Memory(free, total) => format!(
-                "{} GiB / {} GiB",
-                (*free as f32 / (1024.0 * 1024.0)).round() as i32,
-                (*total as f32 / (1024.0 * 1024.0)).round() as i32,
+            ProbeValue::Memory(used, total) => format!(
+                "{}MiB / {}MiB",
+                *used / 1024,
+                *total / 1024,
             ),
             ProbeValue::Network(network) => network.to_string(),
             ProbeValue::Bluetooth(bluetooth) => bluetooth.to_string(),
             ProbeValue::BIOS(bios) => bios.to_string(),
             ProbeValue::GPUDriver(gpu_driver) => gpu_driver.to_string(),
             ProbeValue::CPUUsage(cpu_usage) => format!("{}%", cpu_usage),
-            ProbeValue::Disk(mountpoint, used, total) => format!(
+            ProbeValue::Disk(_mountpoint, used, total) => format!(
                 "{} G / {} G ({}%)",
                 (*used as f32 / (1024.0 * 1024.0 * 1024.0)).round() as i32,
                 (*total as f32 / (1024.0 * 1024.0 * 1024.0)).round() as i32,
                 (*used as f32 / *total as f32 * 100.0).round() as i32,
-            ), // TODO: Somehow render mountpoint
+            ),
             ProbeValue::Battery(battery) => battery.to_string(),
             ProbeValue::PowerAdapter(power_adapter) => power_adapter.to_string(),
             ProbeValue::Font(font) => font.to_string(),

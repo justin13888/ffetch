@@ -2,14 +2,12 @@ use console::style;
 use tracing::debug;
 
 use crate::{
+    ascii::{get_ascii_art, get_distro_color, get_filler},
     config::MacchinaRendererConfig,
-    probe::{ProbeList, ProbeResultValue, ProbeValue},
+    probe::{ProbeList, ProbeResultValue, ProbeValue, general_readout},
 };
 
 use super::RendererError;
-
-mod ascii;
-use ascii::{ASCII_ART, ASCII_ART_FILLER};
 
 pub struct MacchinaRenderer {
     config: MacchinaRendererConfig,
@@ -33,6 +31,21 @@ impl MacchinaRenderer {
     }
 
     pub fn draw(&self) -> Result<(), RendererError> {
+        use libmacchina::traits::GeneralReadout as _;
+
+        // Detect the current distro
+        let distro = general_readout()
+            .distribution()
+            .or_else(|_| general_readout().os_name())
+            .unwrap_or_else(|_| "Linux".to_string());
+
+        debug!("Detected distro: {}", distro);
+
+        // Get ASCII art for this distro
+        let (ascii_art, ascii_width) = get_ascii_art(&distro);
+        let primary_color = get_distro_color(&distro);
+        let filler = get_filler(ascii_width);
+
         let title_width = std::cmp::max(
             self.probe_list
                 .iter()
@@ -42,10 +55,10 @@ impl MacchinaRenderer {
                 + 2,
             12,
         );
-        println!();
-        // TODO: Implement ASCII macchina logos
 
-        let mut art_iter = ASCII_ART.iter();
+        println!();
+
+        let mut art_iter = ascii_art.iter();
 
         for (title, probe) in &self.probe_list {
             let results: Vec<String> = match probe() {
@@ -64,11 +77,8 @@ impl MacchinaRenderer {
             results.into_iter().for_each(|result| {
                 println!(
                     "{}    {:title_width$}{}  {}",
-                    match art_iter.next() {
-                        Some(art) => style(art).blue().to_string(),
-                        None => style(ASCII_ART_FILLER).blue().to_string(),
-                    },
-                    style(title.clone()).blue(),
+                    style(art_iter.next().unwrap_or(&filler.as_str())).fg(primary_color),
+                    style(title.clone()).fg(primary_color),
                     style("-").yellow(),
                     result
                 );
@@ -76,8 +86,8 @@ impl MacchinaRenderer {
         }
 
         // Print remaining ASCII art
-        for art in art_iter {
-            println!("{}", style(art).blue());
+        for art_line in art_iter {
+            println!("{}", style(art_line).fg(primary_color));
         }
 
         println!();
@@ -85,7 +95,6 @@ impl MacchinaRenderer {
         Ok(())
     }
 
-    // TODO: Tweak this function to match actual macchina
     /// Convert a probe value to a string
     fn probe_config_to_string(probe_value: &ProbeValue) -> String {
         match probe_value {
@@ -95,40 +104,29 @@ impl MacchinaRenderer {
             ProbeValue::Model(vendor, product) => format!("{} {}", vendor, product),
             ProbeValue::Kernel(kernel) => kernel.to_string(),
             ProbeValue::Uptime(uptime) => {
-                // TODO: Check if this is correct
                 let uptime = *uptime as f64;
                 let days = (uptime / (60.0 * 60.0 * 24.0)).floor() as i32;
                 let hours = ((uptime / (60.0 * 60.0)) % 24.0).floor() as i32;
                 let minutes = ((uptime / 60.0) % 60.0).floor() as i32;
-                let _res = String::new();
 
                 format!(
                     "{}{}{}",
                     if days > 0 {
-                        format!("{:.0}d ", days)
+                        format!("{}d ", days)
                     } else {
                         String::new()
                     },
                     if hours > 0 {
-                        format!("{:.0}h ", hours)
+                        format!("{}h ", hours)
                     } else {
                         String::new()
                     },
                     if minutes > 0 {
-                        format!("{:.0}m ", minutes)
+                        format!("{}m", minutes)
                     } else {
                         String::new()
                     },
                 )
-                // if days > 0 {
-                //     format!("{:.0}d {:.0}h {:.0}m", days, hours, minutes)
-                // } else if hours > 0 {
-                //     format!("{:.0}h {:.0}m", hours, minutes)
-                // } else if minutes > 0 {
-                //     format!("{:.0}m", minutes)
-                // } else {
-                //     format!("{:.0}s", seconds)
-                // }
             }
             ProbeValue::Packages(counts) => counts
                 .iter()
@@ -148,9 +146,9 @@ impl MacchinaRenderer {
             ProbeValue::TerminalFont(terminal_font) => terminal_font.to_string(),
             ProbeValue::CPU(cpu) => cpu.to_string(),
             ProbeValue::GPU(gpu) => gpu.to_string(),
-            ProbeValue::Memory(free, total) => format!(
+            ProbeValue::Memory(used, total) => format!(
                 "{} GB / {} GB",
-                ((*free as f32 * 10.0 / (1000.0 * 1000.0)).round() / 10.0),
+                ((*used as f32 * 10.0 / (1000.0 * 1000.0)).round() / 10.0),
                 ((*total as f32 * 10.0 / (1000.0 * 1000.0)).round() / 10.0),
             ),
             ProbeValue::Network(network) => network.to_string(),
@@ -158,12 +156,12 @@ impl MacchinaRenderer {
             ProbeValue::BIOS(bios) => bios.to_string(),
             ProbeValue::GPUDriver(gpu_driver) => gpu_driver.to_string(),
             ProbeValue::CPUUsage(cpu_usage) => format!("{}%", cpu_usage),
-            ProbeValue::Disk(mountpoint, used, total) => format!(
+            ProbeValue::Disk(_mountpoint, used, total) => format!(
                 "{} G / {} G ({}%)",
                 (*used as f32 / (1024.0 * 1024.0 * 1024.0)).round() as i32,
                 (*total as f32 / (1024.0 * 1024.0 * 1024.0)).round() as i32,
                 (*used as f32 / *total as f32 * 100.0).round() as i32,
-            ), // TODO: Display mountpoint somehow
+            ),
             ProbeValue::Battery(battery) => {
                 if *battery >= 100 {
                     "Full".to_string()
