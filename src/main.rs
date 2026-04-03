@@ -5,7 +5,7 @@ compile_error!("This crate is only supported on Linux, macOS, and Windows.");
 use std::path::PathBuf;
 
 use clap::{ArgGroup, Parser, Subcommand};
-use tracing::{Level, debug, info};
+use tracing::{Level, debug, info, info_span};
 
 use ffetch_lib::{
     config::{Config, RendererOverride},
@@ -74,7 +74,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _chrome_guard = {
         use tracing_chrome::ChromeLayerBuilder;
         use tracing_subscriber::prelude::*;
-        let (chrome_layer, guard) = ChromeLayerBuilder::new().file("ffetch-trace.json").build();
+        let (chrome_layer, guard) = ChromeLayerBuilder::new()
+            .file("ffetch-trace.json")
+            .include_args(true)
+            .build();
         tracing_subscriber::registry().with(chrome_layer).init();
         guard
     };
@@ -154,7 +157,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Fetch config, otherwise use default
     // TODO: Fix so arguments only change the default renderer and not set the default config
-    let config = if args.all {
+    let config = {
+    let _span = info_span!("config_load").entered();
+    if args.all {
         // Use default all presets
         if args.neofetch {
             debug!("Using neofetch all preset");
@@ -215,16 +220,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Config::default()
             }
         }
+    }
     };
 
     debug!("Config: {:?}", config);
 
     match config {
         Config::Neofetch(neofetch_config) => {
-            NeofetchRenderer::new(neofetch_config).draw()?;
+            let renderer = {
+                let _span = info_span!("renderer_init").entered();
+                NeofetchRenderer::new(neofetch_config)
+            };
+            let _span = info_span!("render").entered();
+            renderer.draw()?;
         }
         Config::Macchina(macchina_config) => {
-            MacchinaRenderer::new(macchina_config).draw()?;
+            let renderer = {
+                let _span = info_span!("renderer_init").entered();
+                MacchinaRenderer::new(macchina_config)
+            };
+            let _span = info_span!("render").entered();
+            renderer.draw()?;
         }
     };
 

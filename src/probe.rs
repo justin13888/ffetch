@@ -6,7 +6,7 @@ use std::{
     sync::OnceLock,
 };
 
-use tracing::debug_span;
+use tracing::{debug_span, instrument};
 
 use libmacchina::{
     BatteryReadout, GeneralReadout, KernelReadout, MemoryReadout, NetworkReadout, PackageReadout,
@@ -119,6 +119,7 @@ fn run_command(cmd: &str, args: &[&str]) -> Result<String, ProbeError> {
 }
 
 /// Parse a key from an INI-style config file (searches all sections).
+#[instrument(level = "debug", fields(path = %path.display(), key))]
 fn parse_ini_key(path: &std::path::Path, key: &str) -> Result<String, ProbeError> {
     let file = std::fs::File::open(path).map_err(|_| ProbeError::MetricsUnavailable)?;
     let needle = format!("{}=", key);
@@ -134,6 +135,7 @@ fn parse_ini_key(path: &std::path::Path, key: &str) -> Result<String, ProbeError
     Err(ProbeError::MetricsUnavailable)
 }
 
+#[instrument(level = "debug")]
 fn detect_terminal_font() -> Result<String, ProbeError> {
     use libmacchina::traits::GeneralReadout as _;
     let terminal = general_readout()
@@ -360,6 +362,7 @@ impl From<ProbeType> for ProbeResultFunction {
             }),
             // TODO: Test libmacchina packages() function for package manager hanging issues
             ProbeType::Packages => Box::new(|| {
+                let _span = debug_span!("pkg_count").entered();
                 Ok(ProbeResultValue::Single(ProbeValue::Packages(
                     package_readout()
                         .count_pkgs()
@@ -455,6 +458,7 @@ impl From<ProbeType> for ProbeResultFunction {
                 )))
             }),
             ProbeType::GPU => Box::new(|| {
+                let _span = debug_span!("gpu_readout").entered();
                 Ok(ProbeResultValue::Multiple(
                     general_readout()
                         .gpus()?
@@ -474,6 +478,7 @@ impl From<ProbeType> for ProbeResultFunction {
             ProbeType::BIOS => Box::new(|| Err(ProbeError::Unimplemented)),
             ProbeType::GPUDriver => Box::new(|| Err(ProbeError::Unimplemented)),
             ProbeType::CPUUsage => Box::new(|| {
+                let _span = debug_span!("cpu_usage_poll").entered();
                 Ok(ProbeResultValue::Single(ProbeValue::CPUUsage(
                     general_readout().cpu_usage()?,
                 )))
@@ -486,6 +491,7 @@ impl From<ProbeType> for ProbeResultFunction {
                 //     disk_readout.1,
                 // )))
 
+                let _span = debug_span!("disk_scan").entered();
                 let disks = Disks::new_with_refreshed_list();
                 Ok(ProbeResultValue::Multiple(
                     disks
@@ -523,6 +529,7 @@ impl From<ProbeType> for ProbeResultFunction {
             }),
             ProbeType::PublicIP => Box::new(|| Err(ProbeError::Unimplemented)),
             ProbeType::Users => Box::new(|| {
+                let _span = debug_span!("user_scan").entered();
                 Ok(ProbeResultValue::Single(ProbeValue::Users(
                     // TODO: Evaluate, whether we should make determining user platform dependent (may be unreliable currently)
                     Users::new_with_refreshed_list()
@@ -543,6 +550,7 @@ impl From<ProbeType> for ProbeResultFunction {
             }),
             ProbeType::Java => Box::new(|| {
                 // java -version writes to stderr
+                let _span = debug_span!("subprocess", cmd = "java").entered();
                 let output = Command::new("java")
                     .arg("-version")
                     .output()
