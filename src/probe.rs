@@ -648,5 +648,5 @@ impl From<Vec<ProbeValue>> for ProbeResultValue {
 }
 
 pub type ProbeResult = Result<ProbeResultValue, ProbeError>;
-pub type ProbeResultFunction = Box<dyn Fn() -> ProbeResult>;
+pub type ProbeResultFunction = Box<dyn Fn() -> ProbeResult + Send + Sync>;
 pub type ProbeList = Vec<(String, ProbeResultFunction)>;

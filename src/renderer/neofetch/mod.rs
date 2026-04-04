@@ -1,11 +1,13 @@
 use console::style;
-use tracing::{debug, info_span};
+use tracing::debug;
 
 use crate::{
     ascii::{get_ascii_art, get_distro_color, get_filler},
     config::NeofetchRendererConfig,
     probe::{ProbeList, ProbeResultValue, ProbeValue, general_readout},
 };
+
+use super::execute_probes_parallel;
 
 use super::RendererError;
 
@@ -79,20 +81,18 @@ impl NeofetchRenderer {
             );
         }
 
-        // Render probes
-        for (title, probe) in &self.probe_list {
-            let _span = info_span!("probe", name = %title).entered();
-            let title = format!("{:width$}:", title, width = max_title_len);
-            let results = match probe() {
-                Ok(result) => match result {
-                    ProbeResultValue::Single(value) => vec![Self::probe_config_to_string(&value)],
-                    ProbeResultValue::Multiple(values) => values
-                        .into_iter()
-                        .map(|value| Self::probe_config_to_string(&value))
-                        .collect::<Vec<_>>(),
-                },
-                Err(err) => {
-                    debug!("Error while probing {}: {}", title, err);
+        // Run all probes in parallel, then render results in order
+        let probe_results = execute_probes_parallel(&self.probe_list);
+        for (title, result) in probe_results {
+            let padded_title = format!("{:width$}:", title, width = max_title_len);
+            let results = match result {
+                Some(ProbeResultValue::Single(value)) => vec![Self::probe_config_to_string(&value)],
+                Some(ProbeResultValue::Multiple(values)) => values
+                    .iter()
+                    .map(Self::probe_config_to_string)
+                    .collect::<Vec<_>>(),
+                None => {
+                    debug!("Error while probing {}", title);
                     continue;
                 }
             };
@@ -100,7 +100,7 @@ impl NeofetchRenderer {
                 println!(
                     "{}   {} {}",
                     style(art_iter.next().unwrap_or(&filler.as_str())).fg(primary_color),
-                    style(title.clone()).fg(primary_color),
+                    style(padded_title.clone()).fg(primary_color),
                     result
                 );
             });
