@@ -1,4 +1,9 @@
-use console::style;
+use std::io::{IsTerminal, Write};
+
+use crossterm::{
+    cursor, execute, queue, terminal,
+    style::{Color, Print, ResetColor, SetForegroundColor},
+};
 use tracing::debug;
 
 use crate::{
@@ -7,9 +12,7 @@ use crate::{
     probe::{ProbeList, ProbeResultValue, ProbeValue, general_readout},
 };
 
-use super::execute_probes_parallel;
-
-use super::RendererError;
+use super::{execute_probes_streaming, RendererError};
 
 pub struct MacchinaRenderer {
     #[allow(dead_code)]
@@ -36,7 +39,6 @@ impl MacchinaRenderer {
     pub fn draw(&self) -> Result<(), RendererError> {
         use libmacchina::traits::GeneralReadout as _;
 
-        // Detect the current distro
         let distro = general_readout()
             .distribution()
             .or_else(|_| general_readout().os_name())
@@ -44,10 +46,12 @@ impl MacchinaRenderer {
 
         debug!("Detected distro: {}", distro);
 
-        // Get ASCII art for this distro
         let (ascii_art, ascii_width) = get_ascii_art(&distro);
         let primary_color = get_distro_color(&distro);
         let filler = get_filler(ascii_width);
+        let get_art = |idx: usize| -> &str {
+            ascii_art.get(idx).copied().unwrap_or(filler.as_str())
+        };
 
         let title_width = std::cmp::max(
             self.probe_list
@@ -59,42 +63,192 @@ impl MacchinaRenderer {
             12,
         );
 
-        println!();
+        let stdout = std::io::stdout();
+        let is_tty = stdout.is_terminal();
+        let mut w = std::io::BufWriter::new(stdout.lock());
 
-        let mut art_iter = ascii_art.iter();
+        queue!(w, Print("\n"))?;
 
-        // Run all probes in parallel, then render results in order
-        let probe_results = execute_probes_parallel(&self.probe_list);
-        for (title, result) in probe_results {
-            let results: Vec<String> = match result {
-                Some(ProbeResultValue::Single(value)) => vec![Self::probe_config_to_string(&value)],
-                Some(ProbeResultValue::Multiple(values)) => values
-                    .iter()
-                    .map(Self::probe_config_to_string)
-                    .collect::<Vec<_>>(),
-                None => {
-                    debug!("Error while probing {}", title);
-                    continue;
-                }
-            };
-            results.into_iter().for_each(|result| {
-                println!(
-                    "{}    {:title_width$}{}  {}",
-                    style(art_iter.next().unwrap_or(&filler.as_str())).fg(primary_color),
-                    style(title.clone()).fg(primary_color),
-                    style("-").yellow(),
-                    result
-                );
+        let n_probes = self.probe_list.len();
+        // Column (0-based) where values start: ascii + "    " + title_width + "-  "
+        let value_col = (ascii_width + 4 + title_width + 3) as u16;
+
+        if !is_tty {
+            // Non-TTY: run probes in parallel, print results sequentially
+            let mut all_results: Vec<Option<Vec<String>>> = vec![None; n_probes];
+            execute_probes_streaming(&self.probe_list, |index, _, result| {
+                all_results[index] = Some(match result {
+                    Some(ProbeResultValue::Single(v)) => vec![Self::probe_config_to_string(&v)],
+                    Some(ProbeResultValue::Multiple(vs)) => {
+                        vs.iter().map(Self::probe_config_to_string).collect()
+                    }
+                    None => vec![],
+                });
             });
+
+            let mut art_idx = 0usize;
+            for (i, (title, _)) in self.probe_list.iter().enumerate() {
+                let strings = match all_results[i].as_deref() {
+                    Some([]) | None => {
+                        debug!("Error while probing {}", title);
+                        continue;
+                    }
+                    Some(ss) => ss.to_vec(),
+                };
+                for (j, s) in strings.iter().enumerate() {
+                    let label = if j == 0 {
+                        title.clone()
+                    } else {
+                        String::new()
+                    };
+                    queue!(
+                        w,
+                        SetForegroundColor(primary_color),
+                        Print(get_art(art_idx)),
+                        ResetColor,
+                        Print("    "),
+                        SetForegroundColor(primary_color),
+                        Print(format!("{label:<title_width$}")),
+                        ResetColor,
+                        SetForegroundColor(Color::Yellow),
+                        Print("-"),
+                        ResetColor,
+                        Print("  "),
+                        Print(s),
+                        Print("\n"),
+                    )?;
+                    art_idx += 1;
+                }
+            }
+            // Print remaining ASCII art
+            for i in art_idx..ascii_art.len() {
+                queue!(
+                    w,
+                    SetForegroundColor(primary_color),
+                    Print(ascii_art[i]),
+                    ResetColor,
+                    Print("\n"),
+                )?;
+            }
+            queue!(w, Print("\n"))?;
+            w.flush()?;
+            return Ok(());
         }
 
-        // Print remaining ASCII art
-        for art_line in art_iter {
-            println!("{}", style(art_line).fg(primary_color));
+        // TTY: progressive rendering with cursor movement
+
+        // Phase 1: print all placeholder lines immediately
+        for (i, (title, _)) in self.probe_list.iter().enumerate() {
+            queue!(
+                w,
+                SetForegroundColor(primary_color),
+                Print(get_art(i)),
+                ResetColor,
+                Print("    "),
+                SetForegroundColor(primary_color),
+                Print(format!("{title:<title_width$}")),
+                ResetColor,
+                SetForegroundColor(Color::Yellow),
+                Print("-"),
+                ResetColor,
+                Print("  \n"),
+            )?;
+        }
+        w.flush()?;
+        // Save cursor position at the bottom of the probe section
+        execute!(w, cursor::SavePosition)?;
+
+        // Phase 2: fill in values as each probe completes
+        let mut results: Vec<Option<Vec<String>>> = vec![None; n_probes];
+        let mut needs_rerender = false;
+
+        execute_probes_streaming(&self.probe_list, |index, _label, result| {
+            let strings: Vec<String> = match result {
+                Some(ProbeResultValue::Single(v)) => vec![Self::probe_config_to_string(&v)],
+                Some(ProbeResultValue::Multiple(vs)) => {
+                    vs.iter().map(Self::probe_config_to_string).collect()
+                }
+                None => vec![],
+            };
+
+            if strings.len() == 1 {
+                // Single value: move cursor to the right line and fill in
+                let lines_up = (n_probes - index) as u16;
+                let _ = execute!(
+                    w,
+                    cursor::RestorePosition,
+                    cursor::MoveUp(lines_up),
+                    cursor::MoveToColumn(value_col),
+                    Print(&strings[0]),
+                    cursor::RestorePosition,
+                );
+            } else {
+                // Zero (failure) or multiple values: needs a re-render pass
+                needs_rerender = true;
+            }
+
+            results[index] = Some(strings);
+        });
+
+        // Phase 3: if any probe had 0 or multiple lines, re-render the probe section
+        let art_idx;
+        if needs_rerender {
+            execute!(
+                w,
+                cursor::RestorePosition,
+                cursor::MoveUp(n_probes as u16),
+                cursor::MoveToColumn(0),
+                terminal::Clear(terminal::ClearType::FromCursorDown),
+            )?;
+            let mut ra_idx = 0usize;
+            for (i, (title, _)) in self.probe_list.iter().enumerate() {
+                let strings = match results[i].as_deref() {
+                    Some([]) | None => {
+                        debug!("Error while probing {}", title);
+                        continue;
+                    }
+                    Some(ss) => ss.to_vec(),
+                };
+                for (j, s) in strings.iter().enumerate() {
+                    let label = if j == 0 { title.as_str() } else { "" };
+                    queue!(
+                        w,
+                        SetForegroundColor(primary_color),
+                        Print(get_art(ra_idx)),
+                        ResetColor,
+                        Print("    "),
+                        SetForegroundColor(primary_color),
+                        Print(format!("{label:<title_width$}")),
+                        ResetColor,
+                        SetForegroundColor(Color::Yellow),
+                        Print("-"),
+                        ResetColor,
+                        Print("  "),
+                        Print(s),
+                        Print("\n"),
+                    )?;
+                    ra_idx += 1;
+                }
+            }
+            art_idx = ra_idx;
+            w.flush()?;
+        } else {
+            execute!(w, cursor::RestorePosition)?;
+            art_idx = n_probes;
         }
 
-        println!();
-
+        // Print remaining ASCII art lines
+        for i in art_idx..ascii_art.len() {
+            queue!(
+                w,
+                SetForegroundColor(primary_color),
+                Print(ascii_art[i]),
+                ResetColor,
+                Print("\n"),
+            )?;
+        }
+        queue!(w, Print("\n"))?;
+        w.flush()?;
         Ok(())
     }
 

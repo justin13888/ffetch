@@ -7,43 +7,44 @@
 include!(concat!(env!("OUT_DIR"), "/ascii_art.rs"));
 
 /// Get the primary color for a given distro.
-/// Returns a console::Color for styling the ASCII art.
+/// Returns a crossterm::style::Color for styling the ASCII art.
 #[allow(clippy::if_same_then_else)]
-pub fn get_distro_color(distro: &str) -> console::Color {
+pub fn get_distro_color(distro: &str) -> crossterm::style::Color {
+    use crossterm::style::Color;
     let distro_lower = distro.to_lowercase();
 
     if distro_lower.contains("ubuntu") {
-        console::Color::Color256(208) // Orange
+        Color::AnsiValue(208) // Orange
     } else if distro_lower.contains("arch") {
-        console::Color::Cyan
+        Color::DarkCyan
     } else if distro_lower.contains("debian") {
-        console::Color::Red
+        Color::DarkRed
     } else if distro_lower.contains("fedora") {
-        console::Color::Blue
+        Color::DarkBlue
     } else if distro_lower.contains("nixos") {
-        console::Color::Cyan
+        Color::DarkCyan
     } else if distro_lower.contains("macos") || distro_lower.contains("darwin") {
-        console::Color::White
+        Color::White
     } else if distro_lower.contains("windows") {
-        console::Color::Cyan
+        Color::DarkCyan
     } else if distro_lower.contains("manjaro") {
-        console::Color::Green
+        Color::DarkGreen
     } else if distro_lower.contains("opensuse") || distro_lower.contains("suse") {
-        console::Color::Green
+        Color::DarkGreen
     } else if distro_lower.contains("mint") {
-        console::Color::Green
+        Color::DarkGreen
     } else if distro_lower.contains("gentoo") {
-        console::Color::Magenta
+        Color::DarkMagenta
     } else if distro_lower.contains("void") {
-        console::Color::Green
+        Color::DarkGreen
     } else if distro_lower.contains("alpine") {
-        console::Color::Blue
+        Color::DarkBlue
     } else if distro_lower.contains("endeavour") {
-        console::Color::Magenta
+        Color::DarkMagenta
     } else if distro_lower.contains("pop") {
-        console::Color::Cyan
+        Color::DarkCyan
     } else {
-        console::Color::Blue // Default
+        Color::DarkBlue // Default
     }
 }
 
@@ -72,13 +73,14 @@ mod tests {
 
     #[test]
     fn test_get_distro_color() {
+        use crossterm::style::Color;
         assert!(matches!(
             get_distro_color("Ubuntu"),
-            console::Color::Color256(208)
+            Color::AnsiValue(208)
         ));
         assert!(matches!(
             get_distro_color("Arch Linux"),
-            console::Color::Cyan
+            Color::DarkCyan
         ));
     }
 }

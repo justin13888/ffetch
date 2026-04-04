@@ -1,4 +1,9 @@
-use console::style;
+use std::io::{IsTerminal, Write};
+
+use crossterm::{
+    cursor, execute, queue, terminal,
+    style::{Color, Print, ResetColor, SetBackgroundColor, SetForegroundColor},
+};
 use tracing::debug;
 
 use crate::{
@@ -7,9 +12,7 @@ use crate::{
     probe::{ProbeList, ProbeResultValue, ProbeValue, general_readout},
 };
 
-use super::execute_probes_parallel;
-
-use super::RendererError;
+use super::{execute_probes_streaming, RendererError};
 
 pub struct NeofetchRenderer {
     config: NeofetchRendererConfig,
@@ -35,7 +38,6 @@ impl NeofetchRenderer {
     pub fn draw(&self) -> Result<(), RendererError> {
         use libmacchina::traits::GeneralReadout as _;
 
-        // Detect the current distro
         let distro = general_readout()
             .distribution()
             .or_else(|_| general_readout().os_name())
@@ -43,10 +45,12 @@ impl NeofetchRenderer {
 
         debug!("Detected distro: {}", distro);
 
-        // Get ASCII art for this distro
         let (ascii_art, ascii_width) = get_ascii_art(&distro);
         let primary_color = get_distro_color(&distro);
         let filler = get_filler(ascii_width);
+        let get_art = |idx: usize| -> &str {
+            ascii_art.get(idx).copied().unwrap_or(filler.as_str())
+        };
 
         let max_title_len = self
             .probe_list
@@ -55,90 +59,274 @@ impl NeofetchRenderer {
             .max()
             .unwrap_or(0);
 
-        let mut art_iter = ascii_art.iter();
+        let stdout = std::io::stdout();
+        let is_tty = stdout.is_terminal();
+        let mut w = std::io::BufWriter::new(stdout.lock());
 
-        // Render title (username@hostname)
+        let mut art_idx = 0usize;
         let mut title_len = 0;
+
+        // Print title (username@hostname)
         if self.config.title {
             let username = general_readout().username()?;
             let hostname = general_readout().hostname()?;
             title_len = username.len() + hostname.len() + 1;
-            println!(
-                "{}   {}@{}",
-                style(art_iter.next().unwrap_or(&filler.as_str())).fg(primary_color),
-                style(&username).fg(primary_color),
-                style(&hostname).fg(primary_color),
-            );
+            queue!(
+                w,
+                SetForegroundColor(primary_color),
+                Print(get_art(art_idx)),
+                ResetColor,
+                Print("   "),
+                SetForegroundColor(primary_color),
+                Print(&username),
+                ResetColor,
+                Print("@"),
+                SetForegroundColor(primary_color),
+                Print(&hostname),
+                ResetColor,
+                Print("\n"),
+            )?;
+            art_idx += 1;
         }
 
-        // Render underline
+        // Print underline
         if self.config.underline {
-            let underline = "-".repeat(title_len);
-            println!(
-                "{}   {}",
-                style(art_iter.next().unwrap_or(&filler.as_str())).fg(primary_color),
-                underline
-            );
+            queue!(
+                w,
+                SetForegroundColor(primary_color),
+                Print(get_art(art_idx)),
+                ResetColor,
+                Print("   "),
+                Print("-".repeat(title_len)),
+                Print("\n"),
+            )?;
+            art_idx += 1;
         }
 
-        // Run all probes in parallel, then render results in order
-        let probe_results = execute_probes_parallel(&self.probe_list);
-        for (title, result) in probe_results {
-            let padded_title = format!("{:width$}:", title, width = max_title_len);
-            let results = match result {
-                Some(ProbeResultValue::Single(value)) => vec![Self::probe_config_to_string(&value)],
-                Some(ProbeResultValue::Multiple(values)) => values
-                    .iter()
-                    .map(Self::probe_config_to_string)
-                    .collect::<Vec<_>>(),
-                None => {
-                    debug!("Error while probing {}", title);
-                    continue;
-                }
-            };
-            results.into_iter().for_each(|result| {
-                println!(
-                    "{}   {} {}",
-                    style(art_iter.next().unwrap_or(&filler.as_str())).fg(primary_color),
-                    style(padded_title.clone()).fg(primary_color),
-                    result
-                );
+        let probe_art_start = art_idx;
+        let n_probes = self.probe_list.len();
+        // Column (0-based) where values start: ascii + "   " + padded_title + " "
+        let value_col = (ascii_width + 3 + max_title_len + 2) as u16;
+
+        if !is_tty {
+            // Non-TTY: run probes in parallel, print results sequentially
+            let mut all_results: Vec<Option<Vec<String>>> = vec![None; n_probes];
+            execute_probes_streaming(&self.probe_list, |index, _, result| {
+                all_results[index] = Some(match result {
+                    Some(ProbeResultValue::Single(v)) => vec![Self::probe_config_to_string(&v)],
+                    Some(ProbeResultValue::Multiple(vs)) => {
+                        vs.iter().map(Self::probe_config_to_string).collect()
+                    }
+                    None => vec![],
+                });
             });
+
+            for (i, (title, _)) in self.probe_list.iter().enumerate() {
+                let strings = match all_results[i].as_deref() {
+                    Some([]) | None => {
+                        debug!("Error while probing {}", title);
+                        continue;
+                    }
+                    Some(ss) => ss.to_vec(),
+                };
+                let padded_title = format!("{:width$}:", title, width = max_title_len);
+                for (j, s) in strings.iter().enumerate() {
+                    let label = if j == 0 {
+                        padded_title.clone()
+                    } else {
+                        " ".repeat(max_title_len + 1)
+                    };
+                    queue!(
+                        w,
+                        SetForegroundColor(primary_color),
+                        Print(get_art(art_idx)),
+                        ResetColor,
+                        Print("   "),
+                        SetForegroundColor(primary_color),
+                        Print(label),
+                        ResetColor,
+                        Print(" "),
+                        Print(s),
+                        Print("\n"),
+                    )?;
+                    art_idx += 1;
+                }
+            }
+        } else {
+            // TTY: progressive rendering with cursor movement
+
+            // Phase 1: print all placeholder lines immediately
+            for (i, (title, _)) in self.probe_list.iter().enumerate() {
+                let padded_title = format!("{:width$}:", title, width = max_title_len);
+                queue!(
+                    w,
+                    SetForegroundColor(primary_color),
+                    Print(get_art(probe_art_start + i)),
+                    ResetColor,
+                    Print("   "),
+                    SetForegroundColor(primary_color),
+                    Print(padded_title),
+                    ResetColor,
+                    Print(" \n"),
+                )?;
+            }
+            w.flush()?;
+            // Save cursor position at the bottom of the probe section
+            execute!(w, cursor::SavePosition)?;
+
+            // Phase 2: fill in values as each probe completes
+            let mut results: Vec<Option<Vec<String>>> = vec![None; n_probes];
+            let mut needs_rerender = false;
+
+            execute_probes_streaming(&self.probe_list, |index, _label, result| {
+                let strings: Vec<String> = match result {
+                    Some(ProbeResultValue::Single(v)) => vec![Self::probe_config_to_string(&v)],
+                    Some(ProbeResultValue::Multiple(vs)) => {
+                        vs.iter().map(Self::probe_config_to_string).collect()
+                    }
+                    None => vec![],
+                };
+
+                if strings.len() == 1 {
+                    // Single value: move cursor to the right line and fill in
+                    let lines_up = (n_probes - index) as u16;
+                    let _ = execute!(
+                        w,
+                        cursor::RestorePosition,
+                        cursor::MoveUp(lines_up),
+                        cursor::MoveToColumn(value_col),
+                        Print(&strings[0]),
+                        cursor::RestorePosition,
+                    );
+                } else {
+                    // Zero (failure) or multiple values: needs a re-render pass
+                    needs_rerender = true;
+                }
+
+                results[index] = Some(strings);
+            });
+
+            // Phase 3: if any probe had 0 or multiple lines, re-render the probe section
+            if needs_rerender {
+                execute!(
+                    w,
+                    cursor::RestorePosition,
+                    cursor::MoveUp(n_probes as u16),
+                    cursor::MoveToColumn(0),
+                    terminal::Clear(terminal::ClearType::FromCursorDown),
+                )?;
+                let mut ra_idx = probe_art_start;
+                for (i, (title, _)) in self.probe_list.iter().enumerate() {
+                    let strings = match results[i].as_deref() {
+                        Some([]) | None => {
+                            debug!("Error while probing {}", title);
+                            continue;
+                        }
+                        Some(ss) => ss.to_vec(),
+                    };
+                    let padded_title = format!("{:width$}:", title, width = max_title_len);
+                    for (j, s) in strings.iter().enumerate() {
+                        let label = if j == 0 {
+                            padded_title.clone()
+                        } else {
+                            " ".repeat(max_title_len + 1)
+                        };
+                        queue!(
+                            w,
+                            SetForegroundColor(primary_color),
+                            Print(get_art(ra_idx)),
+                            ResetColor,
+                            Print("   "),
+                            SetForegroundColor(primary_color),
+                            Print(label),
+                            ResetColor,
+                            Print(" "),
+                            Print(s),
+                            Print("\n"),
+                        )?;
+                        ra_idx += 1;
+                    }
+                }
+                art_idx = ra_idx;
+                w.flush()?;
+            } else {
+                // Ensure cursor is at the bottom of the probe section
+                execute!(w, cursor::RestorePosition)?;
+                art_idx = probe_art_start + n_probes;
+            }
         }
 
-        // Render neofetch colour blocks
+        // Print color blocks
         if self.config.col {
-            // Empty spacer line between probes and colour blocks
-            println!(
-                "{}",
-                style(art_iter.next().unwrap_or(&filler.as_str())).fg(primary_color)
-            );
+            // Spacer line between probes and color blocks
+            queue!(
+                w,
+                SetForegroundColor(primary_color),
+                Print(get_art(art_idx)),
+                ResetColor,
+                Print("\n"),
+            )?;
+            art_idx += 1;
 
-            // Build two rows of 8 coloured blocks (3 spaces each with ANSI background colour)
-            let row1: String = (0u8..8)
-                .map(|i| format!("\x1b[{}m   \x1b[0m", 40 + i))
-                .collect();
-            let row2: String = (0u8..8)
-                .map(|i| format!("\x1b[{}m   \x1b[0m", 100 + i))
-                .collect();
+            // Row 1: dark/standard colors (equivalent to ANSI background 40-47)
+            queue!(
+                w,
+                SetForegroundColor(primary_color),
+                Print(get_art(art_idx)),
+                ResetColor,
+                Print("   "),
+            )?;
+            for color in [
+                Color::Black,
+                Color::DarkRed,
+                Color::DarkGreen,
+                Color::DarkYellow,
+                Color::DarkBlue,
+                Color::DarkMagenta,
+                Color::DarkCyan,
+                Color::Grey,
+            ] {
+                queue!(w, SetBackgroundColor(color), Print("   "), ResetColor)?;
+            }
+            queue!(w, Print("\n"))?;
+            art_idx += 1;
 
-            println!(
-                "{}   {}",
-                style(art_iter.next().unwrap_or(&filler.as_str())).fg(primary_color),
-                row1
-            );
-            println!(
-                "{}   {}",
-                style(art_iter.next().unwrap_or(&filler.as_str())).fg(primary_color),
-                row2
-            );
+            // Row 2: bright colors (equivalent to ANSI background 100-107)
+            queue!(
+                w,
+                SetForegroundColor(primary_color),
+                Print(get_art(art_idx)),
+                ResetColor,
+                Print("   "),
+            )?;
+            for color in [
+                Color::DarkGrey,
+                Color::Red,
+                Color::Green,
+                Color::Yellow,
+                Color::Blue,
+                Color::Magenta,
+                Color::Cyan,
+                Color::White,
+            ] {
+                queue!(w, SetBackgroundColor(color), Print("   "), ResetColor)?;
+            }
+            queue!(w, Print("\n"))?;
+            art_idx += 1;
         }
 
         // Print remaining ASCII art lines
-        for art_line in art_iter {
-            println!("{}", style(art_line).fg(primary_color));
+        for i in art_idx..ascii_art.len() {
+            queue!(
+                w,
+                SetForegroundColor(primary_color),
+                Print(ascii_art[i]),
+                ResetColor,
+                Print("\n"),
+            )?;
         }
 
+        w.flush()?;
         Ok(())
     }
 

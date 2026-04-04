@@ -27,7 +27,7 @@ harness = false
 
 [dependencies]
 clap = { version = "4.5.54", features = ["derive"] }
-console = "0.16.2"
+crossterm = "0.28"
 directories = "6.0.0"
 humansize = { version = "2.1.3", features = ["impl_style"] }
 lazy_static = "1.5.0"

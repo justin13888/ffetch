@@ -7,21 +7,26 @@ use crate::probe::{ProbeList, ProbeResultValue};
 pub mod macchina;
 pub mod neofetch;
 
-pub fn execute_probes_parallel(probe_list: &ProbeList) -> Vec<(String, Option<ProbeResultValue>)> {
+pub fn execute_probes_streaming<F>(probe_list: &ProbeList, mut on_result: F)
+where
+    F: FnMut(usize, &str, Option<ProbeResultValue>),
+{
+    let (tx, rx) = std::sync::mpsc::channel();
     std::thread::scope(|s| {
-        let handles: Vec<_> = probe_list
-            .iter()
-            .map(|(label, probe_fn)| {
-                let label = label.clone();
-                s.spawn(move || {
-                    let _span = info_span!("probe", name = %label).entered();
-                    (label, probe_fn().ok())
-                })
-            })
-            .collect();
-
-        handles.into_iter().map(|h| h.join().unwrap()).collect()
-    })
+        for (index, (label, probe_fn)) in probe_list.iter().enumerate() {
+            let tx = tx.clone();
+            let label = label.clone();
+            s.spawn(move || {
+                let _span = info_span!("probe", name = %label).entered();
+                let result = probe_fn().ok();
+                let _ = tx.send((index, label, result));
+            });
+        }
+        drop(tx);
+        for (index, label, result) in rx {
+            on_result(index, &label, result);
+        }
+    });
 }
 
 #[derive(Error, Debug)]
