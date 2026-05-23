@@ -74,13 +74,7 @@ mod tests {
     #[test]
     fn test_get_distro_color() {
         use crossterm::style::Color;
-        assert!(matches!(
-            get_distro_color("Ubuntu"),
-            Color::AnsiValue(208)
-        ));
-        assert!(matches!(
-            get_distro_color("Arch Linux"),
-            Color::DarkCyan
-        ));
+        assert!(matches!(get_distro_color("Ubuntu"), Color::AnsiValue(208)));
+        assert!(matches!(get_distro_color("Arch Linux"), Color::DarkCyan));
     }
 }

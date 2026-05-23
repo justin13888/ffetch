@@ -1,8 +1,9 @@
 use std::io::{IsTerminal, Write};
 
 use crossterm::{
-    cursor, execute, queue, terminal,
+    cursor, execute, queue,
     style::{Color, Print, ResetColor, SetForegroundColor},
+    terminal,
 };
 use tracing::debug;
 
@@ -12,7 +13,7 @@ use crate::{
     probe::{ProbeList, ProbeResultValue, ProbeValue, general_readout},
 };
 
-use super::{execute_probes_streaming, RendererError};
+use super::{RendererError, execute_probes_streaming};
 
 pub struct MacchinaRenderer {
     #[allow(dead_code)]
@@ -49,9 +50,8 @@ impl MacchinaRenderer {
         let (ascii_art, ascii_width) = get_ascii_art(&distro);
         let primary_color = get_distro_color(&distro);
         let filler = get_filler(ascii_width);
-        let get_art = |idx: usize| -> &str {
-            ascii_art.get(idx).copied().unwrap_or(filler.as_str())
-        };
+        let get_art =
+            |idx: usize| -> &str { ascii_art.get(idx).copied().unwrap_or(filler.as_str()) };
 
         let title_width = std::cmp::max(
             self.probe_list
@@ -96,11 +96,7 @@ impl MacchinaRenderer {
                     Some(ss) => ss.to_vec(),
                 };
                 for (j, s) in strings.iter().enumerate() {
-                    let label = if j == 0 {
-                        title.clone()
-                    } else {
-                        String::new()
-                    };
+                    let label = if j == 0 { title.clone() } else { String::new() };
                     queue!(
                         w,
                         SetForegroundColor(primary_color),
