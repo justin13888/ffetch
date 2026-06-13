@@ -6,43 +6,43 @@
 // Include the generated ASCII art module
 include!(concat!(env!("OUT_DIR"), "/ascii_art.rs"));
 
-/// Get the primary color for a given distro.
-/// Returns a crossterm::style::Color for styling the ASCII art.
+/// Primary colour for a distro logo.
+///
+/// Used to tint the title (username@hostname) and underline. The logo art
+/// itself is coloured via the `${c1}`..`${c6}` palette expanded in `build.rs`.
 #[allow(clippy::if_same_then_else)]
 pub fn get_distro_color(distro: &str) -> crossterm::style::Color {
     use crossterm::style::Color;
-    let distro_lower = distro.to_lowercase();
-
-    if distro_lower.contains("ubuntu") {
+    let d = distro.to_lowercase();
+    if d.contains("ubuntu") {
         Color::AnsiValue(208) // Orange
-    } else if distro_lower.contains("arch") {
+    } else if d.contains("arch") {
         Color::DarkCyan
-    } else if distro_lower.contains("debian") {
+    } else if d.contains("debian") {
         Color::DarkRed
-    } else if distro_lower.contains("fedora") {
+    } else if d.contains("fedora") || d.contains("rhel") || d.contains("rocky") {
         Color::DarkBlue
-    } else if distro_lower.contains("nixos") {
+    } else if d.contains("nixos") || d.contains("pop") {
         Color::DarkCyan
-    } else if distro_lower.contains("macos") || distro_lower.contains("darwin") {
+    } else if d.contains("macos") || d.contains("darwin") {
         Color::White
-    } else if distro_lower.contains("windows") {
+    } else if d.contains("windows") {
         Color::DarkCyan
-    } else if distro_lower.contains("manjaro") {
+    } else if d.contains("manjaro")
+        || d.contains("opensuse")
+        || d.contains("suse")
+        || d.contains("mint")
+        || d.contains("void")
+    {
         Color::DarkGreen
-    } else if distro_lower.contains("opensuse") || distro_lower.contains("suse") {
-        Color::DarkGreen
-    } else if distro_lower.contains("mint") {
-        Color::DarkGreen
-    } else if distro_lower.contains("gentoo") {
+    } else if d.contains("gentoo") {
         Color::DarkMagenta
-    } else if distro_lower.contains("void") {
-        Color::DarkGreen
-    } else if distro_lower.contains("alpine") {
+    } else if d.contains("alpine") {
         Color::DarkBlue
-    } else if distro_lower.contains("endeavour") {
+    } else if d.contains("endeavour") || d.contains("kali") {
         Color::DarkMagenta
-    } else if distro_lower.contains("pop") {
-        Color::DarkCyan
+    } else if d.contains("kde") || d.contains("plasma") {
+        Color::Blue
     } else {
         Color::DarkBlue // Default
     }
