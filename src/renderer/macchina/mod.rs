@@ -117,11 +117,11 @@ impl MacchinaRenderer {
                 }
             }
             // Print remaining ASCII art
-            for i in art_idx..ascii_art.len() {
+            for line in ascii_art.iter().skip(art_idx) {
                 queue!(
                     w,
                     SetForegroundColor(primary_color),
-                    Print(ascii_art[i]),
+                    Print(line),
                     ResetColor,
                     Print("\n"),
                 )?;
@@ -234,11 +234,11 @@ impl MacchinaRenderer {
         }
 
         // Print remaining ASCII art lines
-        for i in art_idx..ascii_art.len() {
+        for line in ascii_art.iter().skip(art_idx) {
             queue!(
                 w,
                 SetForegroundColor(primary_color),
-                Print(ascii_art[i]),
+                Print(line),
                 ResetColor,
                 Print("\n"),
             )?;
