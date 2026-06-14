@@ -8,12 +8,10 @@ use crate::probe::{ProbeResultFunction, ProbeType};
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub enum Config {
     Neofetch(NeofetchRendererConfig),
-    Macchina(MacchinaRendererConfig),
 }
 
 pub enum RendererOverride {
     Neofetch,
-    Macchina,
 }
 
 impl Config {
@@ -30,17 +28,6 @@ impl Config {
     /// Default config replicating neofetch with all features enabled
     pub fn default_neofetch_all() -> Self {
         Self::Neofetch(NeofetchRendererConfig::default_all())
-    }
-
-    /// Default config replicating macchina CLI
-    /// TODO: Implement all macchina CLI configs
-    pub fn default_macchina() -> Self {
-        Self::Macchina(MacchinaRendererConfig::default())
-    }
-
-    /// Default config replicating macchina with all features enabled
-    pub fn default_macchina_all() -> Self {
-        Self::Macchina(MacchinaRendererConfig::default_all())
     }
 
     /// Load config from a file
@@ -137,39 +124,6 @@ impl Default for NeofetchRendererConfig {
             underline: true,
             col: true,
             probes: ProbeConfig::default_neofetch(),
-        }
-    }
-}
-
-// TODO: Implement Macchina configs
-// TODO: Consume config with renderer
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct MacchinaRendererConfig {
-    /// Specifies the network interface to use for the LocalIP readout
-    pub interface: Option<String>,
-    /// Lengthen uptime output
-    pub long_uptime: bool,
-
-    // Probe configs
-    pub probes: Vec<ProbeConfig>,
-}
-
-impl MacchinaRendererConfig {
-    pub fn default_all() -> Self {
-        Self {
-            interface: None,
-            long_uptime: true,
-            probes: ProbeConfig::default_all(),
-        }
-    }
-}
-
-impl Default for MacchinaRendererConfig {
-    fn default() -> Self {
-        Self {
-            interface: None,
-            long_uptime: true,
-            probes: ProbeConfig::default_macchina(),
         }
     }
 }
@@ -289,29 +243,6 @@ impl ProbeConfig {
             Self::Memory("Memory".to_string()),
         ]
     }
-
-    /// Default config replicating macchina CLI
-    pub fn default_macchina() -> Vec<Self> {
-        vec![
-            Self::Host("Host".to_string()),
-            Self::Model("Machine".to_string()),
-            Self::Kernel("Kernel".to_string()),
-            #[cfg(target_os = "linux")]
-            Self::Distro("Distro".to_string()),
-            #[cfg(any(target_os = "macos", target_os = "windows"))]
-            Self::OS("OS".to_string()),
-            Self::Packages("Packages".to_string()),
-            Self::Terminal("Terminal".to_string()),
-            Self::LocalIP("Local IP".to_string()),
-            Self::Shell("Shell".to_string()),
-            Self::Uptime("Uptime".to_string()),
-            Self::CPU("CPU".to_string()),
-            Self::Resolution("Resolution".to_string()),
-            Self::CPUUsage("CPU Load".to_string()),
-            Self::Memory("Memory".to_string()),
-            Self::Battery("Battery".to_string()),
-        ]
-    } // TODO: Double check this function with macchina CLI source code
 
     pub fn get_funcs(&self) -> (String, ProbeResultFunction) {
         match self {

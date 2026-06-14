@@ -9,7 +9,7 @@ use tracing::{Level, debug, info, info_span};
 
 use purr_lib::{
     config::{Config, RendererOverride},
-    renderer::{macchina::MacchinaRenderer, neofetch::NeofetchRenderer},
+    renderer::neofetch::NeofetchRenderer,
 };
 
 // TODO: Include 'libmacchina' version in version command
@@ -32,9 +32,6 @@ struct Cli {
     /// Set to Neofetch renderer.
     #[clap(short, long, group = "renderer")]
     neofetch: bool,
-    /// Set to Macchina renderer.
-    #[clap(short, long, group = "renderer")]
-    macchina: bool,
 
     // Command subcommands
     #[clap(subcommand)]
@@ -55,9 +52,6 @@ struct GenerateCommandArgs {
     /// Generate neofetch preset.
     #[clap(short, long, group = "preset")]
     neofetch: bool,
-    /// Generate macchina preset.
-    #[clap(short, long, group = "preset")]
-    macchina: bool,
 
     /// Use all default presets.
     #[clap(long)]
@@ -125,12 +119,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     } else {
                         Config::default_neofetch()
                     }
-                } else if args.macchina {
-                    if args.all {
-                        Config::default_macchina_all()
-                    } else {
-                        Config::default_macchina()
-                    }
                 } else if args.all {
                     Config::default_all()
                 } else {
@@ -164,9 +152,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             if args.neofetch {
                 debug!("Using neofetch all preset");
                 Config::default_neofetch_all()
-            } else if args.macchina {
-                debug!("Using macchina all preset");
-                Config::default_macchina_all()
             } else {
                 debug!("Using default all preset");
                 Config::default_all()
@@ -199,9 +184,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         if args.neofetch {
                             debug!("Overriding neofetch renderer");
                             Some(RendererOverride::Neofetch)
-                        } else if args.macchina {
-                            debug!("Overriding macchina renderer");
-                            Some(RendererOverride::Macchina)
                         } else {
                             debug!("Using config from default path");
                             None
@@ -230,14 +212,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let renderer = {
                 let _span = info_span!("renderer_init").entered();
                 NeofetchRenderer::new(neofetch_config)
-            };
-            let _span = info_span!("render").entered();
-            renderer.draw()?;
-        }
-        Config::Macchina(macchina_config) => {
-            let renderer = {
-                let _span = info_span!("renderer_init").entered();
-                MacchinaRenderer::new(macchina_config)
             };
             let _span = info_span!("render").entered();
             renderer.draw()?;
