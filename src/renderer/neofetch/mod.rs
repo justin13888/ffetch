@@ -292,46 +292,41 @@ impl NeofetchRenderer {
 
         // Print color blocks
         if self.config.col {
+            let cb = &self.config.color_blocks;
+            let offset = " ".repeat(cb.offset.unwrap_or(3) as usize);
+            let block = " ".repeat(cb.width.max(1) as usize);
+            let height = cb.height.max(1);
+            let (start, end) = (cb.range[0], cb.range[1]);
+
             // Spacer line between probes and color blocks
             Self::put(&mut w, primary_color, false, get_art(art_idx))?;
             queue!(w, Print("\n"))?;
             art_idx += 1;
 
-            // Row 1: dark/standard colors (equivalent to ANSI background 40-47)
-            Self::put(&mut w, primary_color, false, get_art(art_idx))?;
-            queue!(w, Print("   "))?;
-            for color in [
-                Color::Black,
-                Color::DarkRed,
-                Color::DarkGreen,
-                Color::DarkYellow,
-                Color::DarkBlue,
-                Color::DarkMagenta,
-                Color::DarkCyan,
-                Color::Grey,
-            ] {
-                queue!(w, SetBackgroundColor(color), Print("   "), ResetColor)?;
+            // Standard colours (0-7) then bright/extended colours (8+), each
+            // group spanning `height` rows. The [0,15] default reproduces the
+            // classic two rows of eight.
+            let dark: Vec<u8> = (start..=end.min(7)).collect();
+            let bright: Vec<u8> = (start.max(8)..=end).collect();
+            for group in [dark, bright] {
+                if group.is_empty() {
+                    continue;
+                }
+                for _ in 0..height {
+                    Self::put(&mut w, primary_color, false, get_art(art_idx))?;
+                    queue!(w, Print(&offset))?;
+                    for c in &group {
+                        queue!(
+                            w,
+                            SetBackgroundColor(Color::AnsiValue(*c)),
+                            Print(&block),
+                            ResetColor
+                        )?;
+                    }
+                    queue!(w, Print("\n"))?;
+                    art_idx += 1;
+                }
             }
-            queue!(w, Print("\n"))?;
-            art_idx += 1;
-
-            // Row 2: bright colors (equivalent to ANSI background 100-107)
-            Self::put(&mut w, primary_color, false, get_art(art_idx))?;
-            queue!(w, Print("   "))?;
-            for color in [
-                Color::DarkGrey,
-                Color::Red,
-                Color::Green,
-                Color::Yellow,
-                Color::Blue,
-                Color::Magenta,
-                Color::Cyan,
-                Color::White,
-            ] {
-                queue!(w, SetBackgroundColor(color), Print("   "), ResetColor)?;
-            }
-            queue!(w, Print("\n"))?;
-            art_idx += 1;
         }
 
         // Print remaining ASCII art lines

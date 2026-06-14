@@ -104,6 +104,44 @@ fn default_bold() -> bool {
 fn default_underline_char() -> String {
     "-".to_string()
 }
+fn default_block_range() -> [u8; 2] {
+    [0, 15]
+}
+fn default_block_width() -> u16 {
+    3
+}
+fn default_block_height() -> u16 {
+    1
+}
+
+/// Color-block grid options (neofetch `block_range`/`block_width`/
+/// `block_height`/`col_offset`).
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct ColorBlocks {
+    /// Inclusive `[start, end]` palette range to display.
+    #[serde(default = "default_block_range")]
+    pub range: [u8; 2],
+    /// Width of each block, in spaces.
+    #[serde(default = "default_block_width")]
+    pub width: u16,
+    /// Number of rows each block group spans.
+    #[serde(default = "default_block_height")]
+    pub height: u16,
+    /// Left offset before the blocks; `None` = auto (align with the info column).
+    #[serde(default)]
+    pub offset: Option<u16>,
+}
+
+impl Default for ColorBlocks {
+    fn default() -> Self {
+        Self {
+            range: default_block_range(),
+            width: default_block_width(),
+            height: default_block_height(),
+            offset: None,
+        }
+    }
+}
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct NeofetchRendererConfig {
@@ -129,6 +167,9 @@ pub struct NeofetchRendererConfig {
     /// (neofetch `colors`). Empty means use the distro's logo colour.
     #[serde(default)]
     pub colors: Vec<u8>,
+    /// Color-block grid layout (neofetch `block_*` / `col_offset`).
+    #[serde(default)]
+    pub color_blocks: ColorBlocks,
 
     pub probes: Vec<ProbeConfig>,
 }
@@ -153,6 +194,7 @@ impl Default for NeofetchRendererConfig {
             underline_char: default_underline_char(),
             title_fqdn: false,
             colors: Vec::new(),
+            color_blocks: ColorBlocks::default(),
             probes: ProbeConfig::default_neofetch(),
         }
     }
