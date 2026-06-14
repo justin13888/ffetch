@@ -199,7 +199,7 @@ fn detect_terminal_font() -> Result<String, ProbeError> {
 // TODO: Complete the rest of doc comments for this enum vv
 pub enum ProbeValue {
     /// Hostname (username@hostname)
-    /// e.g. ("justin13888", "ffetch")
+    /// e.g. ("justin13888", "purr")
     Host(String, String),
     /// e.g. "Ubuntu 22.04.4 LTS (Jammy Jellyfish)"
     OS(String),

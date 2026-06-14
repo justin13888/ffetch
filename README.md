@@ -1,4 +1,4 @@
-# ffetch
+# purr
 
 Fast, universal, cross-platform fetching tool written in Rust.
 
@@ -7,21 +7,21 @@ Perfect for sharing your [rice](https://www.reddit.com/r/unixporn/) or showing s
 <!-- TODO: Build Status -->
 <!-- TODO: Include preview.png -->
 
-## Why ffetch?
+## Why purr?
 
-- **Fast**: ffetch is designed to be fast, leverages asynchronous I/O with Rust
+- **Fast**: purr is designed to be fast, leverages asynchronous I/O with Rust
 - **Cross-platform**: Covers all three major platforms (Linux, macOS, Windows) and more
 - **Feature-complete**: Includes all features from other tools like `neofetch`, `pfetch`, etc.
-- **Highly customizable**: ffetch provides a wide range of customization options, including themes and ability to replicate various fetch tools.
-- **Modern replacement for neofetch**: ffetch is a modern replacement for [neofetch](https://github.com/dylanaraps/neofetch) with more features and better performance (negligible for fetch tools but nice to know)
-- **Focus on first-class support on all platforms**: ffetch aims to provide first-class support on all desktop platforms, including Windows, macOS, and Linux. It is distributed as many native package managers.
+- **Highly customizable**: purr provides a wide range of customization options, including themes and ability to replicate various fetch tools.
+- **Modern replacement for neofetch**: purr is a modern replacement for [neofetch](https://github.com/dylanaraps/neofetch) with more features and better performance (negligible for fetch tools but nice to know)
+- **Focus on first-class support on all platforms**: purr aims to provide first-class support on all desktop platforms, including Windows, macOS, and Linux. It is distributed as many native package managers.
 
 ## Installation
 
 ### Cargo
 
 ```bash
-cargo install --locked ffetch
+cargo install --locked purrfetch
 ```
 
 <!-- ### Alpine Linux -->
@@ -30,10 +30,10 @@ cargo install --locked ffetch
 
 ### Arch Linux
 
-Use your favorite AUR helper to install `ffetch-git` from the AUR.
+Use your favorite AUR helper to install `purr-git` from the AUR.
 
 ```bash
-paru -S ffetch-git
+paru -S purr-git
 ```
 
 ### Debian/Ubuntu and derivatives
@@ -45,8 +45,8 @@ paru -S ffetch-git
 Install via the COPR repository:
 
 ```bash
-sudo dnf copr enable justin13888/ffetch
-sudo dnf install ffetch
+sudo dnf copr enable justin13888/purr
+sudo dnf install purr
 ```
 
 <!-- ### NixOS -->
@@ -56,14 +56,14 @@ sudo dnf install ffetch
 <!-- ### Homebrew (MacOS)
 
 ```bash
-brew install justin13888/ffetch
+brew install justin13888/purr
 ``` -->
 <!-- TODO: Setup homebrew -->
 
 <!-- ### Winget (Windows)
 
 ```powershell
-winget install justin13888.ffetch
+winget install justin13888.purr
 ``` -->
 <!-- TODO: Setup winget -->
 
@@ -71,7 +71,7 @@ winget install justin13888.ffetch
 
 Note: This method is suggested for one of the following reasons:
 
-1. Latest `ffetch` version
+1. Latest `purr` version
 2. Native package manager is unsupported or not preferred
 
 To install via Git, follow these steps:
@@ -98,7 +98,7 @@ lefthook install
 
 #### End-to-end comparison (hyperfine)
 
-Requires [hyperfine](https://github.com/sharkdp/hyperfine). Compares ffetch against any of neofetch, macchina, and fastfetch that are installed.
+Requires [hyperfine](https://github.com/sharkdp/hyperfine). Compares purr against any of neofetch, macchina, and fastfetch that are installed.
 
 ```bash
 bash scripts/bench-compare.sh           # warm benchmark
@@ -125,7 +125,7 @@ HTML reports are written to `target/criterion/`.
 RUST_LOG=debug cargo run --release -- --all
 ```
 
-**Chrome trace** — produces `ffetch-trace.json` viewable in [Perfetto](https://ui.perfetto.dev):
+**Chrome trace** — produces `purr-trace.json` viewable in [Perfetto](https://ui.perfetto.dev):
 
 ```bash
 cargo run --release --features profile -- --all
@@ -149,8 +149,8 @@ A: It's feature-rich, fast, and written in a memory-safe language (Rust). The go
 Q: Why not contribute to an existing fetch tool?
 A: I want to start from a clean state, including all the features the community wants, and make it truly universally supported and deployable to all common platforms.
 
-Q: What does ffetch use to fetch metrics under the hood?
-A: ffetch uses a modified version of `libmacchina` crate for majority of system-related info.
+Q: What does purr use to fetch metrics under the hood?
+A: purr uses a modified version of `libmacchina` crate for majority of system-related info.
 
 ## Issues
 
@@ -160,7 +160,7 @@ If you encounter any issues, please open an issue on the GitHub repository.
 
 Feel free to submit an issue or PR on GitHub.
 
-> Notice: Looking for submissions/suggestions of new ASCII arts: <https://github.com/justin13888/ffetch/issues/1>
+> Notice: Looking for submissions/suggestions of new ASCII arts: <https://github.com/justin13888/purr/issues/1>
 
 ## License
 

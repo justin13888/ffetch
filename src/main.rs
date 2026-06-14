@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use clap::{ArgGroup, Parser, Subcommand};
 use tracing::{Level, debug, info, info_span};
 
-use ffetch_lib::{
+use purr_lib::{
     config::{Config, RendererOverride},
     renderer::{macchina::MacchinaRenderer, neofetch::NeofetchRenderer},
 };
@@ -75,7 +75,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         use tracing_chrome::ChromeLayerBuilder;
         use tracing_subscriber::prelude::*;
         let (chrome_layer, guard) = ChromeLayerBuilder::new()
-            .file("ffetch-trace.json")
+            .file("purr-trace.json")
             .include_args(true)
             .build();
         tracing_subscriber::registry().with(chrome_layer).init();

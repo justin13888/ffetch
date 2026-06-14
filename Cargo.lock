@@ -566,28 +566,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ffetch"
-version = "0.1.0"
-dependencies = [
- "clap",
- "criterion",
- "crossterm",
- "directories",
- "humansize",
- "lazy_static",
- "libmacchina",
- "serde",
- "sysinfo",
- "thiserror 2.0.18",
- "toml",
- "tracing",
- "tracing-appender",
- "tracing-chrome",
- "tracing-core",
- "tracing-subscriber",
-]
-
-[[package]]
 name = "foreign-types"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1303,6 +1281,28 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "535d180e0ecab6268a3e718bb9fd44db66bbbc256257165fc699dadf70d16fe7"
 dependencies = [
  "unicode-ident",
+]
+
+[[package]]
+name = "purrfetch"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "criterion",
+ "crossterm",
+ "directories",
+ "humansize",
+ "lazy_static",
+ "libmacchina",
+ "serde",
+ "sysinfo",
+ "thiserror 2.0.18",
+ "toml",
+ "tracing",
+ "tracing-appender",
+ "tracing-chrome",
+ "tracing-core",
+ "tracing-subscriber",
 ]
 
 [[package]]

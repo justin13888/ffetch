@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Compare ffetch against neofetch, macchina, and fastfetch using hyperfine.
+# Compare purr against neofetch, macchina, and fastfetch using hyperfine.
 #
 # Requirements:
 #   - hyperfine (https://github.com/sharkdp/hyperfine)
@@ -21,17 +21,17 @@ if ! command -v hyperfine &>/dev/null; then
     exit 1
 fi
 
-# --- Build ffetch in release mode ---
-echo "Building ffetch (release)..."
+# --- Build purr in release mode ---
+echo "Building purr (release)..."
 cargo build --release --manifest-path "$REPO_ROOT/Cargo.toml"
-FFETCH="$REPO_ROOT/target/release/ffetch"
+PURR="$REPO_ROOT/target/release/purr"
 
 # --- Collect available tools ---
 declare -a CMDS=()
 declare -a LABELS=()
 
-CMDS+=("$FFETCH --all")
-LABELS+=("ffetch")
+CMDS+=("$PURR --all")
+LABELS+=("purr")
 
 if command -v fastfetch &>/dev/null; then
     CMDS+=("fastfetch")
@@ -50,7 +50,7 @@ fi
 
 if [ "${#CMDS[@]}" -lt 2 ]; then
     echo "Warning: no competitors found (neofetch, macchina, fastfetch)."
-    echo "Running ffetch standalone benchmark only."
+    echo "Running purr standalone benchmark only."
 fi
 
 echo ""

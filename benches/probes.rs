@@ -1,5 +1,5 @@
 use criterion::{Criterion, criterion_group, criterion_main};
-use ffetch_lib::probe::{ProbeResultFunction, ProbeType};
+use purr_lib::probe::{ProbeResultFunction, ProbeType};
 
 fn bench_probe(c: &mut Criterion, name: &str, probe_type: ProbeType) {
     let probe: ProbeResultFunction = probe_type.into();
