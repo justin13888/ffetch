@@ -18,8 +18,8 @@ use sysinfo::{Disks, Users};
 use thiserror::Error;
 
 use crate::config::{
-    CoresMode, CpuOptions, DeOptions, DistroOptions, KernelOptions, MemoryOptions, PackagesOptions,
-    ShellOptions, SpeedType, UptimeOptions,
+    CoresMode, CpuOptions, DeOptions, DiskOptions, DistroOptions, GpuOptions, GpuType,
+    KernelOptions, MemoryOptions, PackagesOptions, ShellOptions, SpeedType, UptimeOptions,
 };
 
 pub fn battery_readout() -> &'static BatteryReadout {
@@ -261,8 +261,8 @@ pub enum ProbeValue {
     /// E.g. 12
     CPUUsage(usize),
     /// Disk usage (in bytes)
-    /// (mountpoint, used, total)
-    Disk(PathBuf, u64, u64),
+    /// (mountpoint, device name, used, total)
+    Disk(PathBuf, String, u64, u64),
     /// Battery percentage
     /// E.g. 86
     Battery(u8), // TODO: CHECK
@@ -470,16 +470,7 @@ impl From<ProbeType> for ProbeResultFunction {
                     general_readout().cpu_model_name()?,
                 )))
             }),
-            ProbeType::GPU => Box::new(|| {
-                let _span = debug_span!("gpu_readout").entered();
-                Ok(ProbeResultValue::Multiple(
-                    general_readout()
-                        .gpus()?
-                        .into_iter()
-                        .map(ProbeValue::GPU)
-                        .collect::<Vec<_>>(),
-                ))
-            }),
+            ProbeType::GPU => gpu_probe_fn(GpuOptions::default()),
             ProbeType::Memory => Box::new(|| {
                 Ok(ProbeResultValue::Single(ProbeValue::Memory(
                     memory_readout().used()?,
@@ -496,29 +487,7 @@ impl From<ProbeType> for ProbeResultFunction {
                     general_readout().cpu_usage()?,
                 )))
             }),
-            ProbeType::Disk => Box::new(|| {
-                // Note: libmacchina implementation replaced because missing functionality
-                // let disk_readout = general_readout().disk_space()?;
-                // Ok(ProbeResultValue::Single(ProbeValue::Disk(
-                //     disk_readout.0,
-                //     disk_readout.1,
-                // )))
-
-                let _span = debug_span!("disk_scan").entered();
-                let disks = Disks::new_with_refreshed_list();
-                Ok(ProbeResultValue::Multiple(
-                    disks
-                        .iter()
-                        .map(|disk| {
-                            ProbeValue::Disk(
-                                disk.mount_point().to_path_buf(),
-                                disk.total_space().saturating_sub(disk.available_space()),
-                                disk.total_space(),
-                            )
-                        })
-                        .collect::<Vec<_>>(),
-                ))
-            }),
+            ProbeType::Disk => disk_probe_fn(DiskOptions::default()),
             ProbeType::Battery => Box::new(|| {
                 Ok(ProbeResultValue::Single(ProbeValue::Battery(
                     battery_readout().percentage()?,
@@ -693,19 +662,16 @@ impl ProbeValue {
             ProbeValue::Terminal(terminal) => terminal.to_string(),
             ProbeValue::TerminalFont(terminal_font) => terminal_font.to_string(),
             ProbeValue::CPU(cpu) => format_cpu(cpu, &CpuOptions::default()),
-            ProbeValue::GPU(gpu) => gpu.to_string(),
+            ProbeValue::GPU(gpu) => GpuOptions::default().format(gpu),
             ProbeValue::Memory(used, total) => MemoryOptions::default().format(*used, *total),
             ProbeValue::Network(network) => network.to_string(),
             ProbeValue::Bluetooth(bluetooth) => bluetooth.to_string(),
             ProbeValue::BIOS(bios) => bios.to_string(),
             ProbeValue::GPUDriver(gpu_driver) => gpu_driver.to_string(),
             ProbeValue::CPUUsage(cpu_usage) => format!("{}%", cpu_usage),
-            ProbeValue::Disk(_mountpoint, used, total) => format!(
-                "{} G / {} G ({}%)",
-                (*used as f32 / (1024.0 * 1024.0 * 1024.0)).round() as i32,
-                (*total as f32 / (1024.0 * 1024.0 * 1024.0)).round() as i32,
-                (*used as f32 / *total as f32 * 100.0).round() as i32,
-            ),
+            ProbeValue::Disk(mount, name, used, total) => {
+                DiskOptions::default().format(mount, name, *used, *total)
+            }
             ProbeValue::Battery(battery) => battery.to_string(),
             ProbeValue::PowerAdapter(power_adapter) => power_adapter.to_string(),
             ProbeValue::Font(font) => font.to_string(),
@@ -852,6 +818,64 @@ fn de_version(de: &str) -> Option<String> {
         .next_back()
         .map(|s| s.trim_matches('"').to_string())
         .filter(|s| !s.is_empty())
+}
+
+/// Build the disk probe, filtering mount points by `opts.show` (empty = all).
+pub fn disk_probe_fn(opts: DiskOptions) -> ProbeResultFunction {
+    Box::new(move || {
+        let _span = debug_span!("disk_scan").entered();
+        let disks = Disks::new_with_refreshed_list();
+        let entries: Vec<ProbeValue> = disks
+            .iter()
+            .filter(|disk| {
+                opts.show.is_empty()
+                    || opts
+                        .show
+                        .iter()
+                        .any(|s| disk.mount_point() == std::path::Path::new(s))
+            })
+            .map(|disk| {
+                ProbeValue::Disk(
+                    disk.mount_point().to_path_buf(),
+                    disk.name().to_string_lossy().to_string(),
+                    disk.total_space().saturating_sub(disk.available_space()),
+                    disk.total_space(),
+                )
+            })
+            .collect();
+        Ok(ProbeResultValue::Multiple(entries))
+    })
+}
+
+/// Build the GPU probe, filtering by `opts.gpu_type` (all/dedicated/integrated).
+pub fn gpu_probe_fn(opts: GpuOptions) -> ProbeResultFunction {
+    Box::new(move || {
+        use libmacchina::traits::GeneralReadout as _;
+        let _span = debug_span!("gpu_readout").entered();
+        let entries: Vec<ProbeValue> = general_readout()
+            .gpus()?
+            .into_iter()
+            .filter(|name| match opts.gpu_type {
+                GpuType::All => true,
+                GpuType::Integrated => is_integrated_gpu(name),
+                GpuType::Dedicated => !is_integrated_gpu(name),
+            })
+            .map(ProbeValue::GPU)
+            .collect();
+        Ok(ProbeResultValue::Multiple(entries))
+    })
+}
+
+/// Heuristic for whether a GPU name denotes an integrated GPU. Best-effort:
+/// matches "Graphics" (Intel/AMD iGPU naming) and common AMD APU codenames.
+fn is_integrated_gpu(name: &str) -> bool {
+    let n = name.to_ascii_lowercase();
+    n.contains("graphics")
+        || [
+            "raphael", "renoir", "cezanne", "phoenix", "lucienne", "barcelo", "picasso",
+        ]
+        .iter()
+        .any(|c| n.contains(c))
 }
 
 #[cfg(test)]

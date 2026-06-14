@@ -552,6 +552,50 @@ impl PackagesOptions {
     }
 }
 
+impl GpuOptions {
+    /// Render the GPU `name`, optionally dropping the leading vendor token.
+    pub fn format(&self, name: &str) -> String {
+        if self.brand {
+            return name.to_string();
+        }
+        for brand in ["NVIDIA ", "AMD ", "Intel ", "Advanced Micro Devices, Inc. "] {
+            if let Some(rest) = name.strip_prefix(brand) {
+                return rest.to_string();
+            }
+        }
+        name.to_string()
+    }
+}
+
+impl DiskOptions {
+    /// Render a disk line: an optional `(subtitle)` prefix (mount/name/dir), the
+    /// used/total size in GiB, and an optional usage percentage.
+    pub fn format(&self, mount: &Path, name: &str, used: u64, total: u64) -> String {
+        let gib = |b: u64| (b as f64 / (1024.0 * 1024.0 * 1024.0)).round() as u64;
+        let subtitle = match self.subtitle {
+            DiskSubtitle::Mount => Some(mount.display().to_string()),
+            DiskSubtitle::Name => Some(name.to_string()),
+            DiskSubtitle::Dir => Some(
+                mount
+                    .file_name()
+                    .map(|f| f.to_string_lossy().to_string())
+                    .unwrap_or_else(|| mount.display().to_string()),
+            ),
+            DiskSubtitle::None => None,
+        };
+        let mut s = String::new();
+        if let Some(sub) = subtitle.filter(|s| !s.is_empty()) {
+            s.push_str(&format!("({sub}) "));
+        }
+        s.push_str(&format!("{} G / {} G", gib(used), gib(total)));
+        if self.percent && total > 0 {
+            let pct = (used as f64 / total as f64 * 100.0).round() as u64;
+            s.push_str(&format!(" ({pct}%)"));
+        }
+        s
+    }
+}
+
 /// Probe config. Each variant selects a metric and carries its display label
 /// plus any neofetch-style options. Refer to [`ProbeValue`] for what each
 /// metric corresponds to.
@@ -759,7 +803,15 @@ impl ProbeConfig {
 
     /// Build the `(label, probe function)` pair the renderer executes.
     pub fn get_funcs(&self) -> (String, ProbeResultFunction) {
-        (self.label().to_string(), self.probe_type().into())
+        // Disk/GPU capture their options into the closure (mount filtering and
+        // GPU-type filtering happen at gather time); the rest are option-
+        // independent when gathering and format via `format_value`.
+        let func: ProbeResultFunction = match self {
+            Self::Disk(o) => crate::probe::disk_probe_fn(o.clone()),
+            Self::GPU(o) => crate::probe::gpu_probe_fn(o.clone()),
+            _ => self.probe_type().into(),
+        };
+        (self.label().to_string(), func)
     }
 
     /// Render a probed value for this probe, honoring its options. Falls back
@@ -774,6 +826,10 @@ impl ProbeConfig {
             (Self::Shell(o), ProbeValue::Shell(name, ver)) => o.format(name, ver.as_deref()),
             (Self::DE(o), ProbeValue::DE(name, ver)) => o.format(name, ver.as_deref()),
             (Self::Packages(o), ProbeValue::Packages(counts)) => o.format(counts),
+            (Self::Disk(o), ProbeValue::Disk(mount, name, used, total)) => {
+                o.format(mount, name, *used, *total)
+            }
+            (Self::GPU(o), ProbeValue::GPU(name)) => o.format(name),
             _ => value.format(),
         }
     }
@@ -900,5 +956,38 @@ probes = [
             ..Default::default()
         };
         assert_eq!(off.format(&counts), "2122");
+    }
+
+    #[test]
+    fn gpu_brand_toggle() {
+        let on = GpuOptions::with_label("GPU");
+        assert_eq!(
+            on.format("NVIDIA GeForce RTX 4090"),
+            "NVIDIA GeForce RTX 4090"
+        );
+        let off = GpuOptions {
+            brand: false,
+            ..Default::default()
+        };
+        assert_eq!(off.format("NVIDIA GeForce RTX 4090"), "GeForce RTX 4090");
+    }
+
+    #[test]
+    fn disk_subtitle_and_percent() {
+        let gib = 1024u64 * 1024 * 1024;
+        let default = DiskOptions::with_label("Disk"); // subtitle = mount, percent = true
+        assert_eq!(
+            default.format(Path::new("/"), "/dev/sda1", 42 * gib, 256 * gib),
+            "(/) 42 G / 256 G (16%)"
+        );
+        let bare = DiskOptions {
+            subtitle: DiskSubtitle::None,
+            percent: false,
+            ..Default::default()
+        };
+        assert_eq!(
+            bare.format(Path::new("/"), "/dev/sda1", 42 * gib, 256 * gib),
+            "42 G / 256 G"
+        );
     }
 }
