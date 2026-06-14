@@ -178,6 +178,19 @@ impl Default for AsciiOptions {
     }
 }
 
+/// Logo backend: ASCII art or a Kitty-graphics-protocol image (neofetch `backend`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Backend {
+    #[default]
+    Ascii,
+    Kitty,
+}
+
+fn default_image_cols() -> u16 {
+    40
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct NeofetchRendererConfig {
     /// Whether to display the title
@@ -208,6 +221,15 @@ pub struct NeofetchRendererConfig {
     /// ASCII logo options (neofetch `ascii_*`).
     #[serde(default)]
     pub ascii: AsciiOptions,
+    /// Logo backend (neofetch `backend`): ASCII art or a Kitty image.
+    #[serde(default)]
+    pub backend: Backend,
+    /// PNG image source for the Kitty backend (neofetch `--source`).
+    #[serde(default)]
+    pub image_source: Option<PathBuf>,
+    /// Image width in terminal cells for the Kitty backend.
+    #[serde(default = "default_image_cols")]
+    pub image_cols: u16,
 
     pub probes: Vec<ProbeConfig>,
 }
@@ -234,6 +256,9 @@ impl Default for NeofetchRendererConfig {
             colors: Vec::new(),
             color_blocks: ColorBlocks::default(),
             ascii: AsciiOptions::default(),
+            backend: Backend::Ascii,
+            image_source: None,
+            image_cols: default_image_cols(),
             probes: ProbeConfig::default_neofetch(),
         }
     }

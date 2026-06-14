@@ -11,7 +11,7 @@ use tracing::debug;
 
 use crate::{
     ascii::{get_ascii_art, get_distro_color, get_filler},
-    config::NeofetchRendererConfig,
+    config::{Backend, NeofetchRendererConfig},
     probe::{ProbeList, ProbeResultValue, general_readout},
 };
 
@@ -96,6 +96,12 @@ impl NeofetchRenderer {
 
     pub fn draw(&self) -> Result<(), RendererError> {
         use libmacchina::traits::GeneralReadout as _;
+
+        // The Kitty image backend short-circuits the ASCII renderer when it
+        // applies; otherwise it returns false and we fall through to ASCII.
+        if self.draw_image()? {
+            return Ok(());
+        }
 
         let detected = general_readout()
             .distribution()
@@ -356,5 +362,102 @@ impl NeofetchRenderer {
 
         w.flush()?;
         Ok(())
+    }
+
+    /// If the Kitty image backend applies, render the image with the info block
+    /// beside it and return `true`; otherwise return `false` to fall back to
+    /// ASCII. Falls back whenever the terminal isn't Kitty or the source isn't
+    /// a readable PNG, so non-Kitty terminals are unaffected.
+    fn draw_image(&self) -> Result<bool, RendererError> {
+        use crate::renderer::image;
+
+        if self.config.backend != Backend::Kitty {
+            return Ok(false);
+        }
+        let Some(src) = self.config.image_source.clone() else {
+            return Ok(false);
+        };
+        if !image::kitty_supported() {
+            return Ok(false);
+        }
+        let Ok(png) = std::fs::read(&src) else {
+            return Ok(false);
+        };
+        let Some((iw, ih)) = image::png_dimensions(&png) else {
+            return Ok(false);
+        };
+
+        let cols = self.config.image_cols.max(1) as u32;
+        // Terminal cells are ~2x taller than wide, so halve the row estimate.
+        let rows = ((cols as f64 * ih as f64 / iw as f64) / 2.0)
+            .round()
+            .max(1.0) as u32;
+        let pad = " ".repeat(cols as usize + 2);
+
+        let lines = self.build_info_lines()?;
+
+        let mut w = std::io::BufWriter::new(std::io::stdout().lock());
+        // Print the info block left-padded to clear the image area, then draw the
+        // image over that margin from the saved top-left position.
+        execute!(w, cursor::SavePosition)?;
+        for line in &lines {
+            write!(w, "{pad}{line}\r\n")?;
+        }
+        execute!(w, cursor::RestorePosition)?;
+        image::display_png(&mut w, &png, cols, rows)?;
+        let total = lines.len().max(rows as usize) as u16;
+        execute!(w, cursor::RestorePosition, cursor::MoveToNextLine(total))?;
+        w.flush()?;
+        Ok(true)
+    }
+
+    /// Build the plain info lines (title, underline, probe values) for the image
+    /// backend, where the image rather than ASCII art occupies the left column.
+    fn build_info_lines(&self) -> Result<Vec<String>, RendererError> {
+        use libmacchina::traits::GeneralReadout as _;
+
+        let probes = &self.config.probes;
+        let max_title = probes
+            .iter()
+            .map(|p| p.label().chars().count())
+            .max()
+            .unwrap_or(0);
+
+        let mut results: Vec<Option<Vec<String>>> = vec![None; self.probe_list.len()];
+        execute_probes_streaming(&self.probe_list, |index, _, result| {
+            results[index] = Some(match result {
+                Some(ProbeResultValue::Single(v)) => vec![probes[index].format_value(&v)],
+                Some(ProbeResultValue::Multiple(vs)) => {
+                    vs.iter().map(|v| probes[index].format_value(v)).collect()
+                }
+                None => vec![],
+            });
+        });
+
+        let sep = &self.config.separator;
+        let mut lines = Vec::new();
+        if self.config.title {
+            let username = general_readout().username()?;
+            let mut hostname = general_readout().hostname()?;
+            if !self.config.title_fqdn
+                && let Some((short, _)) = hostname.split_once('.')
+            {
+                hostname = short.to_string();
+            }
+            let title = format!("{username}@{hostname}");
+            let len = title.chars().count();
+            lines.push(title);
+            if self.config.underline {
+                lines.push(self.config.underline_char.repeat(len));
+            }
+        }
+        for (i, p) in probes.iter().enumerate() {
+            if let Some(strings) = &results[i] {
+                for s in strings {
+                    lines.push(format!("{:max_title$}{sep} {s}", p.label()));
+                }
+            }
+        }
+        Ok(lines)
     }
 }

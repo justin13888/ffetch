@@ -4,6 +4,7 @@ use tracing::info_span;
 
 use crate::probe::{ProbeList, ProbeResultValue};
 
+pub mod image;
 pub mod json;
 pub mod neofetch;
 
