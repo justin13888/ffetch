@@ -130,12 +130,9 @@ impl NeofetchRenderer {
                     Some(ss) => ss.to_vec(),
                 };
                 let padded_title = format!("{:width$}:", title, width = max_title_len);
-                for (j, s) in strings.iter().enumerate() {
-                    let label = if j == 0 {
-                        padded_title.clone()
-                    } else {
-                        " ".repeat(max_title_len + 1)
-                    };
+                for s in strings.iter() {
+                    // Repeat the label on every line (e.g. one "GPU:" per GPU),
+                    // matching neofetch rather than leaving orphaned values.
                     queue!(
                         w,
                         SetForegroundColor(primary_color),
@@ -143,7 +140,7 @@ impl NeofetchRenderer {
                         ResetColor,
                         Print("   "),
                         SetForegroundColor(primary_color),
-                        Print(label),
+                        Print(&padded_title),
                         ResetColor,
                         Print(" "),
                         Print(s),
@@ -225,12 +222,9 @@ impl NeofetchRenderer {
                         Some(ss) => ss.to_vec(),
                     };
                     let padded_title = format!("{:width$}:", title, width = max_title_len);
-                    for (j, s) in strings.iter().enumerate() {
-                        let label = if j == 0 {
-                            padded_title.clone()
-                        } else {
-                            " ".repeat(max_title_len + 1)
-                        };
+                    for s in strings.iter() {
+                        // Repeat the label on every line (e.g. one "GPU:" per GPU),
+                        // matching neofetch rather than leaving orphaned values.
                         queue!(
                             w,
                             SetForegroundColor(primary_color),
@@ -238,7 +232,7 @@ impl NeofetchRenderer {
                             ResetColor,
                             Print("   "),
                             SetForegroundColor(primary_color),
-                            Print(label),
+                            Print(&padded_title),
                             ResetColor,
                             Print(" "),
                             Print(s),
@@ -339,20 +333,33 @@ impl NeofetchRenderer {
             ProbeValue::Model(vendor, product) => format!("{} {}", vendor, product),
             ProbeValue::Kernel(kernel) => kernel.to_string(),
             ProbeValue::Uptime(uptime) => {
-                let uptime = *uptime as f64;
-                let days = (uptime / (60.0 * 60.0 * 24.0)).floor() as i32;
-                let hours = ((uptime / (60.0 * 60.0)) % 24.0).floor() as i32;
-                let minutes = ((uptime / 60.0) % 60.0).floor() as i32;
-                let seconds = (uptime % 60.0).floor() as i32;
+                let days = uptime / 86400;
+                let hours = (uptime % 86400) / 3600;
+                let minutes = (uptime % 3600) / 60;
+                let seconds = uptime % 60;
+
+                // Pluralize each unit independently, like neofetch ("1 day, 7 hours").
+                let unit = |n: usize, word: &str| {
+                    if n == 1 {
+                        format!("{} {}", n, word)
+                    } else {
+                        format!("{} {}s", n, word)
+                    }
+                };
 
                 if days > 0 {
-                    format!("{} days, {} hours, {} mins", days, hours, minutes)
+                    format!(
+                        "{}, {}, {}",
+                        unit(days, "day"),
+                        unit(hours, "hour"),
+                        unit(minutes, "min")
+                    )
                 } else if hours > 0 {
-                    format!("{} hours, {} mins", hours, minutes)
+                    format!("{}, {}", unit(hours, "hour"), unit(minutes, "min"))
                 } else if minutes > 0 {
-                    format!("{} mins", minutes)
+                    unit(minutes, "min")
                 } else {
-                    format!("{} seconds", seconds)
+                    unit(seconds, "sec")
                 }
             }
             ProbeValue::Packages(counts) => counts
@@ -371,7 +378,7 @@ impl NeofetchRenderer {
             ProbeValue::Cursor(cursor) => cursor.to_string(),
             ProbeValue::Terminal(terminal) => terminal.to_string(),
             ProbeValue::TerminalFont(terminal_font) => terminal_font.to_string(),
-            ProbeValue::CPU(cpu) => cpu.to_string(),
+            ProbeValue::CPU(cpu) => format_cpu(cpu),
             ProbeValue::GPU(gpu) => gpu.to_string(),
             ProbeValue::Memory(used, total) => {
                 format!("{}MiB / {}MiB", *used / 1024, *total / 1024,)
@@ -400,5 +407,83 @@ impl NeofetchRenderer {
             ProbeValue::Python(python) => python.to_string(),
             ProbeValue::Rust(rust) => rust.to_string(),
         }
+    }
+}
+
+/// Format a raw CPU model into neofetch's CPU line: cruft stripped, with the
+/// logical core count and max clock appended, e.g.
+/// "AMD Ryzen 7 7800X3D (16) @ 5.053GHz".
+fn format_cpu(model: &str) -> String {
+    use libmacchina::traits::GeneralReadout as _;
+
+    let mut cpu = clean_cpu_model(model);
+    if let Ok(cores) = general_readout().cpu_cores() {
+        cpu.push_str(&format!(" ({})", cores));
+    }
+    if let Some(ghz) = cpu_max_ghz() {
+        cpu.push_str(&format!(" @ {}GHz", ghz));
+    }
+    cpu
+}
+
+/// Strip the marketing cruft neofetch removes from CPU model strings
+/// (`(R)`, `(TM)`, `CPU`, `Processor`, `N-Core`, …) and collapse whitespace.
+fn clean_cpu_model(model: &str) -> String {
+    let mut s = model.to_string();
+    for pat in ["(R)", "(r)", "(TM)", "(tm)", "CPU", "Processor"] {
+        s = s.replace(pat, " ");
+    }
+    s.split_whitespace()
+        .filter(|tok| {
+            // Drop "N-Core" tokens (e.g. "8-Core").
+            let core = tok.to_ascii_lowercase();
+            !(core.ends_with("-core")
+                && core
+                    .trim_end_matches("-core")
+                    .chars()
+                    .all(|c| c.is_ascii_digit()))
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Read the CPU's max frequency from sysfs and render it as GHz (e.g.
+/// "5.053"), matching neofetch. Returns `None` when sysfs is unavailable.
+fn cpu_max_ghz() -> Option<String> {
+    let base = "/sys/devices/system/cpu/cpu0/cpufreq";
+    for file in ["bios_limit", "scaling_max_freq", "cpuinfo_max_freq"] {
+        if let Ok(contents) = std::fs::read_to_string(format!("{base}/{file}"))
+            && let Ok(khz) = contents.trim().parse::<u64>()
+        {
+            let mhz = khz / 1000;
+            return Some(format!("{}.{:03}", mhz / 1000, mhz % 1000));
+        }
+    }
+    None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::clean_cpu_model;
+
+    #[test]
+    fn strips_amd_core_and_processor() {
+        assert_eq!(
+            clean_cpu_model("AMD Ryzen 7 7800X3D 8-Core Processor"),
+            "AMD Ryzen 7 7800X3D"
+        );
+    }
+
+    #[test]
+    fn strips_intel_trademarks_and_cpu() {
+        assert_eq!(
+            clean_cpu_model("Intel(R) Core(TM) i7-11800H CPU"),
+            "Intel Core i7-11800H"
+        );
+    }
+
+    #[test]
+    fn leaves_clean_names_untouched() {
+        assert_eq!(clean_cpu_model("Apple M1"), "Apple M1");
     }
 }
