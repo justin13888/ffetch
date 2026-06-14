@@ -22,3 +22,12 @@ lint-check:
 # Run the test suite
 test:
     cargo test
+
+# Verify this branch's commits (vs origin/master) follow Conventional Commits.
+# convco is invoked through mise so it resolves in git hooks regardless of shell activation.
+commit-check:
+    mise exec -- convco check origin/master..HEAD
+
+# Lint a single commit message file against Conventional Commits (used by the commit-msg hook)
+commit-msg-check file:
+    mise exec -- convco check --from-stdin --strip < {{file}}

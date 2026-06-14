@@ -1,0 +1,9 @@
+[workspace]
+# release-plz owns version bumping, CHANGELOG.md, the git tag, and crates.io publishing.
+# cargo-dist owns the GitHub Release + binaries + Homebrew, so disable release-plz's GitHub release.
+changelog_update   = true
+git_tag_enable     = true
+git_release_enable = false
+git_tag_name       = "v{{ version }}"  # single-package tag; must match cargo-dist's release.yml trigger
+semver_check       = false             # purr is primarily a binary; skip cargo-semver-checks noise
+pr_labels          = ["release"]

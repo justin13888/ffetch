@@ -76,7 +76,7 @@ impl Config {
     }
 
     fn get_project_dirs() -> Option<directories::ProjectDirs> {
-        directories::ProjectDirs::from("net", "justin13888", "ffetch")
+        directories::ProjectDirs::from("net", "justin13888", "purr")
     }
 
     pub fn get_config_dir() -> Option<PathBuf> {
