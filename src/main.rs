@@ -14,7 +14,7 @@ use purr_lib::{
 
 // TODO: Include 'libmacchina' version in version command
 #[derive(Parser, Debug)]
-#[command(version, about, long_about = None)]
+#[command(name = "purr", version = purr_lib::version::LONG_VERSION, about, long_about = None)]
 #[clap(group = ArgGroup::new("setting").multiple(false).required(false))]
 #[clap(group = ArgGroup::new("renderer").multiple(false).required(false))]
 struct Cli {

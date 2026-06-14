@@ -11,9 +11,13 @@
 use std::env;
 use std::fs;
 use std::path::Path;
+use std::process::Command;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 fn main() {
     println!("cargo:rerun-if-changed=ascii/distros/");
+
+    emit_build_metadata();
 
     let out_dir = env::var("OUT_DIR").unwrap();
     let dest_path = Path::new(&out_dir).join("ascii_art.rs");
@@ -239,6 +243,108 @@ fn expand_markers(line: &str, palette: &[u8; 6]) -> String {
     }
     out.push_str("\x1b[0m");
     out
+}
+
+/// Emit the `PURR_*` `cargo:rustc-env` vars consumed by `src/version.rs` to
+/// build the verbose `purr -V` / `purr --version` output: git commit + dirty
+/// state, build profile, target/host triples, compile timestamp and rustc.
+fn emit_build_metadata() {
+    // Re-run when HEAD moves or the index changes so the commit hash and dirty
+    // marker don't go stale across rebuilds. Working-tree edits can't all be
+    // tracked here, so the dirty flag is best-effort.
+    println!("cargo:rerun-if-changed=.git/HEAD");
+    println!("cargo:rerun-if-changed=.git/index");
+    println!("cargo:rerun-if-env-changed=SOURCE_DATE_EPOCH");
+
+    let unknown = || "unknown".to_string();
+
+    println!("cargo:rustc-env=PURR_GIT_HASH={}", git_commit_display());
+    println!(
+        "cargo:rustc-env=PURR_BUILD_PROFILE={}",
+        env::var("PROFILE").unwrap_or_else(|_| unknown())
+    );
+    println!(
+        "cargo:rustc-env=PURR_BUILD_TARGET={}",
+        env::var("TARGET").unwrap_or_else(|_| unknown())
+    );
+    println!(
+        "cargo:rustc-env=PURR_BUILD_HOST={}",
+        env::var("HOST").unwrap_or_else(|_| unknown())
+    );
+    println!("cargo:rustc-env=PURR_BUILD_TIMESTAMP={}", build_timestamp());
+    println!("cargo:rustc-env=PURR_RUSTC_VERSION={}", rustc_version());
+}
+
+/// Short commit hash with a `(clean)`/`(dirty)` suffix, or `unknown` when git
+/// isn't available (e.g. building from a published crate tarball).
+fn git_commit_display() -> String {
+    let Some(hash) = run_git(&["rev-parse", "--short", "HEAD"]) else {
+        return "unknown".to_string();
+    };
+    let dirty = run_git(&["status", "--porcelain"])
+        .map(|s| !s.trim().is_empty())
+        .unwrap_or(false);
+    let state = if dirty { "dirty" } else { "clean" };
+    format!("{hash} ({state})")
+}
+
+/// Run `git <args>` and return trimmed stdout, or `None` on any failure.
+fn run_git(args: &[&str]) -> Option<String> {
+    let output = Command::new("git").args(args).output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    Some(String::from_utf8(output.stdout).ok()?.trim().to_string())
+}
+
+/// Compile timestamp as `YYYY-MM-DD HH:MM:SS UTC`. Honours `SOURCE_DATE_EPOCH`
+/// for reproducible builds, otherwise uses the current time.
+fn build_timestamp() -> String {
+    let secs = env::var("SOURCE_DATE_EPOCH")
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        .unwrap_or_else(|| {
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0)
+        });
+    format_utc(secs)
+}
+
+/// Format Unix `secs` as `YYYY-MM-DD HH:MM:SS UTC` without pulling in a date
+/// crate. Civil-date conversion is Howard Hinnant's `days_from_civil` inverse.
+fn format_utc(secs: u64) -> String {
+    let days = (secs / 86_400) as i64;
+    let rem = secs % 86_400;
+    let (hh, mm, ss) = (rem / 3600, (rem % 3600) / 60, rem % 60);
+
+    let z = days + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = z - era * 146_097; // [0, 146096]
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365; // [0, 399]
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100); // [0, 365]
+    let mp = (5 * doy + 2) / 153; // [0, 11]
+    let d = doy - (153 * mp + 2) / 5 + 1; // [1, 31]
+    let m = if mp < 10 { mp + 3 } else { mp - 9 }; // [1, 12]
+    let y = if m <= 2 { y + 1 } else { y };
+
+    format!("{y:04}-{m:02}-{d:02} {hh:02}:{mm:02}:{ss:02} UTC")
+}
+
+/// First line of `rustc --version`, or `unknown` if it can't be determined.
+fn rustc_version() -> String {
+    let rustc = env::var("RUSTC").unwrap_or_else(|_| "rustc".to_string());
+    Command::new(rustc)
+        .arg("--version")
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "unknown".to_string())
 }
 
 /// Display width of a line after stripping ANSI escape sequences. Used in
