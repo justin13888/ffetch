@@ -143,7 +143,7 @@ fn distro_palette(name: &str) -> [u8; 6] {
         // Existing logos in repo:
         "ubuntu" => [208, 15, 7, 7, 7, 7],
         "arch" => [6, 7, 6, 6, 6, 6],
-        "fedora" | "fedora_silverblue" | "fedora-silverblue" => [4, 7, 4, 4, 4, 4],
+        "fedora" | "fedora_silverblue" | "fedora-silverblue" => [12, 7, 12, 12, 12, 12],
         "debian" => [1, 7, 3, 3, 3, 3],
         "nixos" => [4, 6, 4, 4, 4, 4],
         "macos" => [2, 3, 1, 5, 4, 4],

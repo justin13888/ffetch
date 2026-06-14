@@ -20,7 +20,9 @@ pub fn get_distro_color(distro: &str) -> crossterm::style::Color {
         Color::DarkCyan
     } else if d.contains("debian") {
         Color::DarkRed
-    } else if d.contains("fedora") || d.contains("rhel") || d.contains("rocky") {
+    } else if d.contains("fedora") {
+        Color::AnsiValue(12) // Bright blue, matches neofetch's Fedora logo
+    } else if d.contains("rhel") || d.contains("rocky") {
         Color::DarkBlue
     } else if d.contains("nixos") || d.contains("pop") {
         Color::DarkCyan
