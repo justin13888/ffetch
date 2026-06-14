@@ -1,6 +1,44 @@
-# Dev tooling for purr. Run `mise install` to provision everything below.
+# Dev tooling for purr. Run `mise install` to provision everything below and install git hooks.
 # Rust itself is managed by rust-toolchain.toml, not mise.
 [tools]
-just = "1.52.0"           # task runner (see justfile)
-lefthook = "2.1.9"        # git hooks (see lefthook.yml)
+hk = "1.48.0"             # git hooks (see hk.pkl)
 "cargo:convco" = "0.6.4"  # Conventional Commits linter (built from source; not in mise's registry)
+
+# After `mise install`, wire up hk's git hooks through mise so they resolve hk + tools
+# without requiring shell activation. Skipped in CI, where the hooks aren't needed.
+[hooks]
+postinstall = 'test -n "$CI" || hk install --mise'
+
+[tasks.fmt]
+description = "Format code in place"
+run = "cargo fmt"
+
+[tasks.fmt-check]
+description = "Verify formatting without modifying files"
+run = "cargo fmt --check"
+
+[tasks.lint]
+description = "Auto-fix clippy lints, then verify nothing remains"
+# clippy --fix exits 0 even on failure, so re-run a strict check afterwards
+run = ["cargo clippy --fix --allow-dirty --allow-staged", "cargo clippy -- -D warnings"]
+
+[tasks.lint-check]
+description = "Verify clippy lints without modifying files (CI-grade)"
+run = "cargo clippy -- -D warnings"
+
+[tasks.test]
+description = "Run the test suite"
+run = "cargo test"
+
+[tasks.start]
+description = "Build and run purr (forward args: mise run start -- <args>)"
+run = "cargo run --"
+
+[tasks.commit-check]
+description = "Verify this branch's commits (vs origin/master) follow Conventional Commits"
+run = "convco check origin/master..HEAD"
+
+[tasks.commit-msg-check]
+description = "Lint a single commit message file against Conventional Commits (used by the commit-msg hook)"
+usage = 'arg "<file>" help="Path to the commit message file"'
+run = 'convco check --from-stdin --strip < "${usage_file}"'
