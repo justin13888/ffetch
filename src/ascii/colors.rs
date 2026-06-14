@@ -48,9 +48,36 @@ pub fn expand(line: &str, palette: &[u8; 6], bold: bool) -> String {
     out
 }
 
+/// Remove `${c1}`..`${c6}` markers without emitting any colour (for NO_COLOR).
+pub fn strip(line: &str) -> String {
+    if !line.contains("${c") {
+        return line.to_string();
+    }
+    let mut out = String::with_capacity(line.len());
+    let mut chars = line.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '$' && chars.peek() == Some(&'{') {
+            chars.next();
+            for n in chars.by_ref() {
+                if n == '}' {
+                    break;
+                }
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn strips_markers_to_plain() {
+        assert_eq!(strip("${c1}A${c2}B"), "AB");
+    }
 
     #[test]
     fn no_markers_unchanged() {

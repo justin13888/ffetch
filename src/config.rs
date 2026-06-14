@@ -77,6 +77,34 @@ impl Config {
         Self::get_project_dirs().map(|dirs| dirs.config_dir().to_path_buf())
     }
 
+    /// Mutable access to the active renderer's probe list (for CLI overrides).
+    pub fn probes_mut(&mut self) -> &mut Vec<ProbeConfig> {
+        match self {
+            Config::Neofetch(c) => &mut c.probes,
+            Config::Json(c) => &mut c.probes,
+        }
+    }
+
+    /// Swap to a different renderer, preserving the probe list. A Neofetch
+    /// config kept as Neofetch is returned untouched (no styling loss).
+    pub fn with_renderer(self, target: RendererOverride) -> Self {
+        match (target, &self) {
+            (RendererOverride::Neofetch, Config::Neofetch(_)) => self,
+            (RendererOverride::Neofetch, Config::Json(c)) => {
+                Config::Neofetch(NeofetchRendererConfig {
+                    probes: c.probes.clone(),
+                    ..Default::default()
+                })
+            }
+            (RendererOverride::Json, _) => Config::Json(JsonRendererConfig {
+                probes: match self {
+                    Config::Neofetch(c) => c.probes,
+                    Config::Json(c) => c.probes,
+                },
+            }),
+        }
+    }
+
     pub const CONFIG_FILE_NAME: &'static str = "config.toml";
 }
 
@@ -185,6 +213,8 @@ pub enum Backend {
     #[default]
     Ascii,
     Kitty,
+    /// No logo (neofetch `--off`).
+    Off,
 }
 
 fn default_image_cols() -> u16 {

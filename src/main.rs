@@ -15,7 +15,6 @@ use purr_lib::{
 // TODO: Include 'libmacchina' version in version command
 #[derive(Parser, Debug)]
 #[command(name = "purr", version = purr_lib::version::LONG_VERSION, about, long_about = None)]
-#[clap(group = ArgGroup::new("setting").multiple(false).required(false))]
 #[clap(group = ArgGroup::new("renderer").multiple(false).required(false))]
 struct Cli {
     /// Include verbose output or not.
@@ -23,15 +22,75 @@ struct Cli {
     verbose: bool,
 
     /// Path to a custom config file.
-    #[clap(short, long, group = "setting")]
+    #[clap(short, long)]
     config: Option<PathBuf>,
-    /// Use all default presets.
-    #[clap(long, group = "setting")]
+    /// Ignore any config file and start from the built-in defaults.
+    #[clap(long)]
+    no_config: bool,
+    /// Use the all-probes preset.
+    #[clap(long)]
     all: bool,
 
-    /// Set to Neofetch renderer.
+    /// Use the neofetch text renderer.
     #[clap(short, long, group = "renderer")]
     neofetch: bool,
+    /// Emit JSON instead of text.
+    #[clap(long, group = "renderer")]
+    json: bool,
+
+    // ── Logo ──
+    /// Force a specific distro logo (e.g. "arch").
+    #[clap(long = "ascii_distro", value_name = "DISTRO")]
+    ascii_distro: Option<String>,
+    /// Override logo colours (space/comma list, e.g. "4 6 1").
+    #[clap(long = "ascii_colors", value_name = "LIST")]
+    ascii_colors: Option<String>,
+    /// Don't bold the logo.
+    #[clap(long = "no_ascii_bold")]
+    no_ascii_bold: bool,
+    /// Show only the logo (no info).
+    #[clap(short = 'L', long)]
+    logo: bool,
+    /// Hide the logo.
+    #[clap(long)]
+    off: bool,
+    /// Logo backend: ascii or kitty.
+    #[clap(long, value_name = "BACKEND")]
+    backend: Option<String>,
+    /// Image source (PNG) for the kitty backend.
+    #[clap(long, value_name = "PATH")]
+    source: Option<PathBuf>,
+
+    // ── Text ──
+    /// Separator between labels and values.
+    #[clap(long, value_name = "STR")]
+    separator: Option<String>,
+    /// Don't bold the title and labels.
+    #[clap(long = "no_bold")]
+    no_bold: bool,
+    /// Character used for the title underline.
+    #[clap(long = "underline_char", value_name = "CHAR")]
+    underline_char: Option<String>,
+    /// Show the fully-qualified hostname.
+    #[clap(long = "title_fqdn")]
+    title_fqdn: bool,
+    /// Override text colours (space/comma list).
+    #[clap(long, value_name = "LIST")]
+    colors: Option<String>,
+    /// Pipe-friendly output: disable colour.
+    #[clap(long)]
+    stdout: bool,
+
+    // ── Per-field ──
+    /// Memory unit: kib, mib, or gib.
+    #[clap(long = "memory_unit", value_name = "UNIT")]
+    memory_unit: Option<String>,
+    /// Uptime format: on, tiny, or off.
+    #[clap(long = "uptime_shorthand", value_name = "MODE")]
+    uptime_shorthand: Option<String>,
+    /// CPU cores: logical, physical, or off.
+    #[clap(long = "cpu_cores", value_name = "MODE")]
+    cpu_cores: Option<String>,
 
     // Command subcommands
     #[clap(subcommand)]
@@ -60,7 +119,7 @@ struct GenerateCommandArgs {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Parse CLI arguments
-    let args = Cli::parse();
+    let mut args = Cli::parse();
     let verbose = args.verbose;
 
     // Initialize logger
@@ -89,7 +148,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     debug!("Args: {:?}", args);
 
-    if let Some(command) = args.command {
+    if let Some(command) = args.command.take() {
         match command {
             Command::Generate(args) => {
                 // Generate a new config file
@@ -141,69 +200,52 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    // Handle main command
+    // Handle main command (no subcommand): resolve config, then layer flags.
 
-    // Fetch config, otherwise use default
-    // TODO: Fix so arguments only change the default renderer and not set the default config
-    let config = {
+    // `--stdout` disables colour for the whole run via the NO_COLOR convention.
+    if args.stdout {
+        // SAFETY: still single-threaded here — set before any probe threads spawn.
+        unsafe { std::env::set_var("NO_COLOR", "1") };
+    }
+
+    // Renderer override from flags.
+    let renderer_override = if args.json {
+        Some(RendererOverride::Json)
+    } else if args.neofetch {
+        Some(RendererOverride::Neofetch)
+    } else {
+        None
+    };
+
+    // Base config: --all preset, --no-config defaults, else load the config file.
+    let mut config = {
         let _span = info_span!("config_load").entered();
         if args.all {
-            // Use default all presets
-            if args.neofetch {
-                debug!("Using neofetch all preset");
-                Config::default_neofetch_all()
-            } else {
-                debug!("Using default all preset");
-                Config::default_all()
-            }
+            Config::default_all()
+        } else if args.no_config {
+            Config::default()
         } else {
-            // Determine config path
-            let config_path = match args.config {
-                Some(config_path) => {
-                    // Custom config file was provided
-                    debug!("Using custom config path: {:?}", config_path);
-                    config_path
-                }
-                None => {
-                    // Search at default config path
-                    let default_config_path = Config::get_config_dir()
-                        .expect("Could not determine config directory")
-                        .join(Config::CONFIG_FILE_NAME);
-                    debug!("Using default config path: {:?}", default_config_path);
-
-                    default_config_path
-                }
-            };
-
-            // Verify config file exists
+            let config_path = args.config.clone().unwrap_or_else(|| {
+                Config::get_config_dir()
+                    .expect("Could not determine config directory")
+                    .join(Config::CONFIG_FILE_NAME)
+            });
             match config_path.try_exists() {
-                Ok(true) => {
-                    // Load config from file
-                    Config::from_file(
-                        &config_path,
-                        if args.neofetch {
-                            debug!("Overriding neofetch renderer");
-                            Some(RendererOverride::Neofetch)
-                        } else {
-                            debug!("Using config from default path");
-                            None
-                        },
-                    )?
-                }
-                Ok(false) => {
-                    debug!("No config dir found, using default config");
-                    Config::default()
-                }
+                Ok(true) => Config::from_file(&config_path, None)?,
+                Ok(false) => Config::default(),
                 Err(e) => {
-                    info!(
-                        "Using default config. Error checking for config dir: {:?}",
-                        e
-                    );
+                    info!("Using default config. Error checking config file: {:?}", e);
                     Config::default()
                 }
             }
         }
     };
+
+    // Precedence: defaults < config file < CLI flags.
+    if let Some(target) = renderer_override {
+        config = config.with_renderer(target);
+    }
+    apply_overrides(&mut config, &args);
 
     debug!("Config: {:?}", config);
 
@@ -223,4 +265,103 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     Ok(())
+}
+
+/// Parse a space/comma-separated list of 0-255 values (for colour overrides).
+fn parse_u8_list(s: &str) -> Vec<u8> {
+    s.split([',', ' '])
+        .filter(|t| !t.is_empty())
+        .filter_map(|t| t.parse().ok())
+        .collect()
+}
+
+/// Layer CLI flag overrides onto a loaded config (defaults < config < flags).
+fn apply_overrides(config: &mut Config, args: &Cli) {
+    use purr_lib::config::{Backend, CoresMode, MemoryUnit, ProbeConfig, UptimeFormat};
+
+    if let Config::Neofetch(c) = config {
+        if let Some(s) = &args.separator {
+            c.separator = s.clone();
+        }
+        if args.no_bold || args.stdout {
+            c.bold = false;
+        }
+        if let Some(u) = &args.underline_char {
+            c.underline_char = u.clone();
+        }
+        if args.title_fqdn {
+            c.title_fqdn = true;
+        }
+        if let Some(cl) = &args.colors {
+            c.colors = parse_u8_list(cl);
+        }
+        if let Some(d) = &args.ascii_distro {
+            c.ascii.distro = Some(d.clone());
+        }
+        if let Some(ac) = &args.ascii_colors {
+            c.ascii.colors = parse_u8_list(ac);
+        }
+        if args.no_ascii_bold {
+            c.ascii.bold = false;
+        }
+        if let Some(src) = &args.source {
+            c.image_source = Some(src.clone());
+            c.backend = Backend::Kitty;
+        }
+        if let Some(b) = &args.backend {
+            c.backend = match b.as_str() {
+                "kitty" => Backend::Kitty,
+                "off" => Backend::Off,
+                _ => Backend::Ascii,
+            };
+        }
+        if args.off {
+            c.backend = Backend::Off;
+        }
+        if args.logo {
+            c.title = false;
+            c.underline = false;
+            c.col = false;
+            c.probes.clear();
+        }
+    }
+
+    // Per-field probe overrides apply to whichever renderer's probe list.
+    let probes = config.probes_mut();
+    if let Some(u) = &args.memory_unit {
+        let unit = match u.as_str() {
+            "kib" => MemoryUnit::Kib,
+            "gib" => MemoryUnit::Gib,
+            _ => MemoryUnit::Mib,
+        };
+        for p in probes.iter_mut() {
+            if let ProbeConfig::Memory(o) = p {
+                o.unit = unit;
+            }
+        }
+    }
+    if let Some(f) = &args.uptime_shorthand {
+        let fmt = match f.as_str() {
+            "tiny" => UptimeFormat::Tiny,
+            "off" => UptimeFormat::Off,
+            _ => UptimeFormat::On,
+        };
+        for p in probes.iter_mut() {
+            if let ProbeConfig::Uptime(o) = p {
+                o.format = fmt;
+            }
+        }
+    }
+    if let Some(m) = &args.cpu_cores {
+        let mode = match m.as_str() {
+            "physical" => CoresMode::Physical,
+            "off" => CoresMode::Off,
+            _ => CoresMode::Logical,
+        };
+        for p in probes.iter_mut() {
+            if let ProbeConfig::CPU(o) = p {
+                o.cores = mode;
+            }
+        }
+    }
 }

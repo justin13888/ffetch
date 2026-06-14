@@ -81,6 +81,10 @@ impl NeofetchRenderer {
     /// Write `text` in `color`, optionally bold, then reset. ANSI is zero-width
     /// so this never affects the renderer's column math.
     fn put<W: Write>(w: &mut W, color: Color, bold: bool, text: &str) -> std::io::Result<()> {
+        // Honour the NO_COLOR convention (set by `--stdout`).
+        if std::env::var_os("NO_COLOR").is_some() {
+            return queue!(w, Print(text));
+        }
         if bold {
             queue!(
                 w,
@@ -112,7 +116,13 @@ impl NeofetchRenderer {
         let distro = self.config.ascii.distro.clone().unwrap_or(detected);
         debug!("Logo distro: {}", distro);
 
-        let (ascii_art, ascii_width, base_palette) = get_ascii_art(&distro);
+        let (full_art, full_width, base_palette) = get_ascii_art(&distro);
+        // `backend = off` (neofetch --off) drops the logo entirely.
+        let (ascii_art, ascii_width): (&[&str], usize) = if self.config.backend == Backend::Off {
+            (&[], 0)
+        } else {
+            (full_art, full_width)
+        };
         let primary_color = get_distro_color(&distro);
         // `ascii_colors` overrides the logo palette (padded with the logo's own).
         let palette: [u8; 6] = {
@@ -123,11 +133,16 @@ impl NeofetchRenderer {
             p
         };
         let ascii_bold = self.config.ascii.bold;
+        let no_color = std::env::var_os("NO_COLOR").is_some();
         let filler = get_filler(ascii_width);
-        // Expand `${cN}` markers at render time using the logo's palette.
+        // Expand `${cN}` markers at render time (or strip them under NO_COLOR).
         let get_art = |idx: usize| -> String {
             let raw = ascii_art.get(idx).copied().unwrap_or(filler.as_str());
-            crate::ascii::colors::expand(raw, &palette, ascii_bold)
+            if no_color {
+                crate::ascii::colors::strip(raw)
+            } else {
+                crate::ascii::colors::expand(raw, &palette, ascii_bold)
+            }
         };
 
         let colors = resolve_colors(&self.config.colors, primary_color);
@@ -310,8 +325,8 @@ impl NeofetchRenderer {
             }
         }
 
-        // Print color blocks
-        if self.config.col {
+        // Print color blocks (skipped under NO_COLOR — they're meaningless without colour).
+        if self.config.col && std::env::var_os("NO_COLOR").is_none() {
             let cb = &self.config.color_blocks;
             let offset = " ".repeat(cb.offset.unwrap_or(3) as usize);
             let block = " ".repeat(cb.width.max(1) as usize);
@@ -351,12 +366,12 @@ impl NeofetchRenderer {
 
         // Print remaining ASCII art lines
         for line in ascii_art.iter().skip(art_idx) {
-            Self::put(
-                &mut w,
-                primary_color,
-                false,
-                &crate::ascii::colors::expand(line, &palette, ascii_bold),
-            )?;
+            let art = if no_color {
+                crate::ascii::colors::strip(line)
+            } else {
+                crate::ascii::colors::expand(line, &palette, ascii_bold)
+            };
+            Self::put(&mut w, primary_color, false, &art)?;
             queue!(w, Print("\n"))?;
         }
 
