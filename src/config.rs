@@ -262,13 +262,13 @@ pub enum PackageDisplay {
     Off,
 }
 
-/// Distro-name verbosity (`distro_shorthand`).
+/// Distro-name verbosity (`distro_shorthand`). neofetch defaults to off.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Shorthand {
-    #[default]
     On,
     Tiny,
+    #[default]
     Off,
 }
 
@@ -290,7 +290,7 @@ probe_options!(
 probe_options!(
     /// Options for the OS/distro line (`distro_shorthand`, `os_arch`).
     DistroOptions {
-        shorthand: Shorthand = Shorthand::On,
+        shorthand: Shorthand = Shorthand::Off,
         os_arch: bool = true,
     }
 );
@@ -362,6 +362,139 @@ probe_options!(
         shorthand: bool = false,
     }
 );
+
+// ── Per-probe value formatting ───────────────────────────────────────────
+
+impl MemoryOptions {
+    /// Render `used`/`total` (both KiB) in the configured unit, optionally with
+    /// a usage percentage.
+    pub fn format(&self, used_kib: u64, total_kib: u64) -> String {
+        let (used, total, unit) = match self.unit {
+            MemoryUnit::Kib => (used_kib as f64, total_kib as f64, "KiB"),
+            MemoryUnit::Mib => (used_kib as f64 / 1024.0, total_kib as f64 / 1024.0, "MiB"),
+            MemoryUnit::Gib => (
+                used_kib as f64 / 1_048_576.0,
+                total_kib as f64 / 1_048_576.0,
+                "GiB",
+            ),
+        };
+        let mut s = match self.unit {
+            MemoryUnit::Gib => format!("{used:.2}{unit} / {total:.2}{unit}"),
+            _ => format!(
+                "{}{unit} / {}{unit}",
+                used.round() as u64,
+                total.round() as u64
+            ),
+        };
+        if self.percent && total_kib > 0 {
+            let pct = (used_kib as f64 / total_kib as f64 * 100.0).round() as u64;
+            s.push_str(&format!(" ({pct}%)"));
+        }
+        s
+    }
+}
+
+impl UptimeOptions {
+    /// Render `secs` of uptime in the configured verbosity.
+    pub fn format(&self, secs: usize) -> String {
+        let days = secs / 86400;
+        let hours = (secs % 86400) / 3600;
+        let mins = (secs % 3600) / 60;
+        let s = secs % 60;
+        match self.format {
+            UptimeFormat::Tiny => {
+                let mut parts = Vec::new();
+                if days > 0 {
+                    parts.push(format!("{days}d"));
+                }
+                if hours > 0 {
+                    parts.push(format!("{hours}h"));
+                }
+                if mins > 0 {
+                    parts.push(format!("{mins}m"));
+                }
+                if parts.is_empty() {
+                    parts.push(format!("{s}s"));
+                }
+                parts.join(" ")
+            }
+            UptimeFormat::On => uptime_words(days, hours, mins, s, "min", "sec"),
+            UptimeFormat::Off => uptime_words(days, hours, mins, s, "minute", "second"),
+        }
+    }
+}
+
+/// Build neofetch's worded uptime ("1 day, 9 hours, 22 mins"), with the
+/// minute/second words parameterized for the `on`/`off` shorthand.
+fn uptime_words(
+    days: usize,
+    hours: usize,
+    mins: usize,
+    secs: usize,
+    min_word: &str,
+    sec_word: &str,
+) -> String {
+    let unit = |n: usize, word: &str| {
+        if n == 1 {
+            format!("{n} {word}")
+        } else {
+            format!("{n} {word}s")
+        }
+    };
+    if days > 0 {
+        format!(
+            "{}, {}, {}",
+            unit(days, "day"),
+            unit(hours, "hour"),
+            unit(mins, min_word)
+        )
+    } else if hours > 0 {
+        format!("{}, {}", unit(hours, "hour"), unit(mins, min_word))
+    } else if mins > 0 {
+        unit(mins, min_word)
+    } else {
+        unit(secs, sec_word)
+    }
+}
+
+impl KernelOptions {
+    /// Render the kernel `version`, prepending the kernel name when
+    /// `kernel_shorthand` is off.
+    pub fn format(&self, version: &str) -> String {
+        if self.shorthand {
+            version.to_string()
+        } else {
+            let name = if cfg!(target_os = "macos") {
+                "Darwin"
+            } else if cfg!(target_os = "windows") {
+                "Windows NT"
+            } else {
+                "Linux"
+            };
+            format!("{name} {version}")
+        }
+    }
+}
+
+impl DistroOptions {
+    /// Render the OS/distro `name`, applying `distro_shorthand` and appending
+    /// the machine architecture when `os_arch` is on.
+    pub fn format(&self, name: &str) -> String {
+        let mut s = match self.shorthand {
+            Shorthand::Off => name.to_string(),
+            // Drop a trailing parenthetical (codename), e.g.
+            // "Fedora Linux 44 (Silverblue)" -> "Fedora Linux 44".
+            Shorthand::On => name.split('(').next().unwrap_or(name).trim().to_string(),
+            // Just the distro name (first token), e.g. "Fedora".
+            Shorthand::Tiny => name.split_whitespace().next().unwrap_or(name).to_string(),
+        };
+        if self.os_arch {
+            s.push(' ');
+            s.push_str(std::env::consts::ARCH);
+        }
+        s
+    }
+}
 
 /// Probe config. Each variant selects a metric and carries its display label
 /// plus any neofetch-style options. Refer to [`ProbeValue`] for what each
@@ -578,6 +711,10 @@ impl ProbeConfig {
     pub fn format_value(&self, value: &ProbeValue) -> String {
         match (self, value) {
             (Self::CPU(o), ProbeValue::CPU(model)) => crate::probe::format_cpu(model, o),
+            (Self::OS(o), ProbeValue::OS(name)) => o.format(name),
+            (Self::Kernel(o), ProbeValue::Kernel(v)) => o.format(v),
+            (Self::Uptime(o), ProbeValue::Uptime(s)) => o.format(*s),
+            (Self::Memory(o), ProbeValue::Memory(u, t)) => o.format(*u, *t),
             _ => value.format(),
         }
     }
@@ -621,5 +758,64 @@ probes = [
                 }
             }
         }
+    }
+
+    #[test]
+    fn memory_units_and_percent() {
+        let mut o = MemoryOptions::with_label("Memory");
+        assert_eq!(o.format(1024 * 1024, 2 * 1024 * 1024), "1024MiB / 2048MiB");
+        o.percent = true;
+        assert_eq!(
+            o.format(1024 * 1024, 2 * 1024 * 1024),
+            "1024MiB / 2048MiB (50%)"
+        );
+        o.unit = MemoryUnit::Gib;
+        o.percent = false;
+        assert_eq!(o.format(1024 * 1024, 2 * 1024 * 1024), "1.00GiB / 2.00GiB");
+    }
+
+    #[test]
+    fn uptime_formats() {
+        let secs = 86400 + 9 * 3600 + 22 * 60;
+        let on = UptimeOptions {
+            format: UptimeFormat::On,
+            ..Default::default()
+        };
+        let off = UptimeOptions {
+            format: UptimeFormat::Off,
+            ..Default::default()
+        };
+        let tiny = UptimeOptions {
+            format: UptimeFormat::Tiny,
+            ..Default::default()
+        };
+        assert_eq!(on.format(secs), "1 day, 9 hours, 22 mins");
+        assert_eq!(off.format(secs), "1 day, 9 hours, 22 minutes");
+        assert_eq!(tiny.format(secs), "1d 9h 22m");
+    }
+
+    #[test]
+    fn distro_arch_and_shorthand() {
+        let full = DistroOptions {
+            shorthand: Shorthand::Off,
+            os_arch: false,
+            ..Default::default()
+        };
+        assert_eq!(
+            full.format("Fedora Linux 44 (Silverblue)"),
+            "Fedora Linux 44 (Silverblue)"
+        );
+        let on = DistroOptions {
+            shorthand: Shorthand::On,
+            os_arch: false,
+            ..Default::default()
+        };
+        assert_eq!(on.format("Fedora Linux 44 (Silverblue)"), "Fedora Linux 44");
+        let tiny = DistroOptions {
+            shorthand: Shorthand::Tiny,
+            os_arch: false,
+            ..Default::default()
+        };
+        assert_eq!(tiny.format("Fedora Linux 44 (Silverblue)"), "Fedora");
     }
 }

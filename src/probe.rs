@@ -17,7 +17,9 @@ use serde::{Deserialize, Serialize};
 use sysinfo::{Disks, Users};
 use thiserror::Error;
 
-use crate::config::{CoresMode, CpuOptions, SpeedType};
+use crate::config::{
+    CoresMode, CpuOptions, DistroOptions, KernelOptions, MemoryOptions, SpeedType, UptimeOptions,
+};
 
 pub fn battery_readout() -> &'static BatteryReadout {
     use libmacchina::traits::BatteryReadout as _;
@@ -338,16 +340,12 @@ impl From<ProbeType> for ProbeResultFunction {
             }),
             ProbeType::OS => Box::new(|| {
                 // libmacchina's `os_name` is unimplemented on Linux, so fall back to the
-                // distribution pretty-name (e.g. "Fedora Linux 44 (Silverblue)"). Append
-                // the machine architecture, matching neofetch's default `os_arch=on`.
+                // distribution pretty-name (e.g. "Fedora Linux 44 (Silverblue)"). The
+                // architecture and shorthand are applied later by `DistroOptions`.
                 let name = general_readout()
                     .os_name()
                     .or_else(|_| general_readout().distribution())?;
-                Ok(ProbeResultValue::Single(ProbeValue::OS(format!(
-                    "{} {}",
-                    name,
-                    std::env::consts::ARCH
-                ))))
+                Ok(ProbeResultValue::Single(ProbeValue::OS(name)))
             }),
             ProbeType::Distro => Box::new(|| {
                 Ok(ProbeResultValue::Single(ProbeValue::Distro(
@@ -670,40 +668,11 @@ impl ProbeValue {
     pub fn format(&self) -> String {
         match self {
             ProbeValue::Host(username, hostname) => format!("{}@{}", username, hostname),
-            ProbeValue::OS(os) => os.to_string(),
+            ProbeValue::OS(os) => DistroOptions::default().format(os),
             ProbeValue::Distro(distro) => distro.to_string(),
             ProbeValue::Model(vendor, product) => format!("{} {}", vendor, product),
-            ProbeValue::Kernel(kernel) => kernel.to_string(),
-            ProbeValue::Uptime(uptime) => {
-                let days = uptime / 86400;
-                let hours = (uptime % 86400) / 3600;
-                let minutes = (uptime % 3600) / 60;
-                let seconds = uptime % 60;
-
-                // Pluralize each unit independently, like neofetch ("1 day, 7 hours").
-                let unit = |n: usize, word: &str| {
-                    if n == 1 {
-                        format!("{} {}", n, word)
-                    } else {
-                        format!("{} {}s", n, word)
-                    }
-                };
-
-                if days > 0 {
-                    format!(
-                        "{}, {}, {}",
-                        unit(days, "day"),
-                        unit(hours, "hour"),
-                        unit(minutes, "min")
-                    )
-                } else if hours > 0 {
-                    format!("{}, {}", unit(hours, "hour"), unit(minutes, "min"))
-                } else if minutes > 0 {
-                    unit(minutes, "min")
-                } else {
-                    unit(seconds, "sec")
-                }
-            }
+            ProbeValue::Kernel(kernel) => KernelOptions::default().format(kernel),
+            ProbeValue::Uptime(uptime) => UptimeOptions::default().format(*uptime),
             ProbeValue::Packages(counts) => counts
                 .iter()
                 .map(|(manager, count)| format!("{} ({})", count, manager))
@@ -722,9 +691,7 @@ impl ProbeValue {
             ProbeValue::TerminalFont(terminal_font) => terminal_font.to_string(),
             ProbeValue::CPU(cpu) => format_cpu(cpu, &CpuOptions::default()),
             ProbeValue::GPU(gpu) => gpu.to_string(),
-            ProbeValue::Memory(used, total) => {
-                format!("{}MiB / {}MiB", *used / 1024, *total / 1024,)
-            }
+            ProbeValue::Memory(used, total) => MemoryOptions::default().format(*used, *total),
             ProbeValue::Network(network) => network.to_string(),
             ProbeValue::Bluetooth(bluetooth) => bluetooth.to_string(),
             ProbeValue::BIOS(bios) => bios.to_string(),
