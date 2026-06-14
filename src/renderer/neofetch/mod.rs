@@ -97,20 +97,31 @@ impl NeofetchRenderer {
     pub fn draw(&self) -> Result<(), RendererError> {
         use libmacchina::traits::GeneralReadout as _;
 
-        let distro = general_readout()
+        let detected = general_readout()
             .distribution()
             .or_else(|_| general_readout().os_name())
             .unwrap_or_else(|_| "Linux".to_string());
 
-        debug!("Detected distro: {}", distro);
+        // `ascii_distro` overrides which logo (and its tint) is shown.
+        let distro = self.config.ascii.distro.clone().unwrap_or(detected);
+        debug!("Logo distro: {}", distro);
 
-        let (ascii_art, ascii_width, palette) = get_ascii_art(&distro);
+        let (ascii_art, ascii_width, base_palette) = get_ascii_art(&distro);
         let primary_color = get_distro_color(&distro);
+        // `ascii_colors` overrides the logo palette (padded with the logo's own).
+        let palette: [u8; 6] = {
+            let mut p = base_palette;
+            for (i, &c) in self.config.ascii.colors.iter().take(6).enumerate() {
+                p[i] = c;
+            }
+            p
+        };
+        let ascii_bold = self.config.ascii.bold;
         let filler = get_filler(ascii_width);
         // Expand `${cN}` markers at render time using the logo's palette.
         let get_art = |idx: usize| -> String {
             let raw = ascii_art.get(idx).copied().unwrap_or(filler.as_str());
-            crate::ascii::colors::expand(raw, &palette, false)
+            crate::ascii::colors::expand(raw, &palette, ascii_bold)
         };
 
         let colors = resolve_colors(&self.config.colors, primary_color);
@@ -338,7 +349,7 @@ impl NeofetchRenderer {
                 &mut w,
                 primary_color,
                 false,
-                &crate::ascii::colors::expand(line, &palette, false),
+                &crate::ascii::colors::expand(line, &palette, ascii_bold),
             )?;
             queue!(w, Print("\n"))?;
         }

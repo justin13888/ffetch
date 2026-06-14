@@ -143,6 +143,34 @@ impl Default for ColorBlocks {
     }
 }
 
+fn default_ascii_bold() -> bool {
+    true
+}
+
+/// ASCII logo options (neofetch `ascii_distro`/`ascii_colors`/`ascii_bold`).
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct AsciiOptions {
+    /// Force a specific distro logo; `None` = auto-detect from the running OS.
+    #[serde(default)]
+    pub distro: Option<String>,
+    /// Override the logo's `${c1}`..`${c6}` palette; empty = the logo's own colours.
+    #[serde(default)]
+    pub colors: Vec<u8>,
+    /// Bold the logo (neofetch defaults this on).
+    #[serde(default = "default_ascii_bold")]
+    pub bold: bool,
+}
+
+impl Default for AsciiOptions {
+    fn default() -> Self {
+        Self {
+            distro: None,
+            colors: Vec::new(),
+            bold: default_ascii_bold(),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct NeofetchRendererConfig {
     /// Whether to display the title
@@ -170,6 +198,9 @@ pub struct NeofetchRendererConfig {
     /// Color-block grid layout (neofetch `block_*` / `col_offset`).
     #[serde(default)]
     pub color_blocks: ColorBlocks,
+    /// ASCII logo options (neofetch `ascii_*`).
+    #[serde(default)]
+    pub ascii: AsciiOptions,
 
     pub probes: Vec<ProbeConfig>,
 }
@@ -195,6 +226,7 @@ impl Default for NeofetchRendererConfig {
             title_fqdn: false,
             colors: Vec::new(),
             color_blocks: ColorBlocks::default(),
+            ascii: AsciiOptions::default(),
             probes: ProbeConfig::default_neofetch(),
         }
     }
