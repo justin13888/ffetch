@@ -9,12 +9,11 @@ Perfect for sharing your [rice](https://www.reddit.com/r/unixporn/) or showing s
 
 ## Why purr?
 
-- **Fast**: purr is designed to be fast, leverages asynchronous I/O with Rust
-- **Cross-platform**: Covers all three major platforms (Linux, macOS, Windows) and more
-- **Feature-complete**: Includes all features from other tools like `neofetch`, `pfetch`, etc.
-- **Highly customizable**: purr provides a wide range of customization options, including themes and ability to replicate various fetch tools.
-- **Modern replacement for neofetch**: purr is a modern replacement for [neofetch](https://github.com/dylanaraps/neofetch) with more features and better performance (negligible for fetch tools but nice to know)
-- **Focus on first-class support on all platforms**: purr aims to provide first-class support on all desktop platforms, including Windows, macOS, and Linux. It is distributed as many native package managers.
+- **Fast**: probes run in parallel on native Rust; a typical run completes in milliseconds
+- **Cross-platform**: Linux, macOS, and Windows
+- **neofetch-compatible**: matches neofetch's commonly-used info fields, styling, configuration, and `${c1}`..`${c6}` ASCII format. The [parity matrix](docs/neofetch-parity.md) records exactly what's covered and what's intentionally deferred
+- **Highly customizable**: TOML config plus CLI flags for separators, colours, per-field options, color blocks, ASCII overrides, JSON output, and a Kitty image backend
+- **Modern neofetch replacement**: memory-safe, maintained, and distributed via native package managers across Windows, macOS, and Linux
 
 ## Installation
 
@@ -90,6 +89,54 @@ Note: This method is suggested for one of the following reasons:
 To install via Git, follow these steps:
 1. Clone this repository.
 2. Run `cargo install --path .` in the repository root.
+
+## Usage
+
+Run `purr` with no arguments for the neofetch-style output. Useful flags:
+
+| flag | effect |
+|---|---|
+| `--all` | show every probe |
+| `--json` | structured JSON output |
+| `-L`/`--logo`, `--off` | logo only · no logo |
+| `--ascii_distro <name>` | force a distro logo |
+| `--ascii_colors "4 6 1"` | recolour the logo |
+| `--separator <s>`, `--no_bold`, `--colors "..."` | text styling |
+| `--memory_unit gib`, `--uptime_shorthand tiny`, `--cpu_cores physical` | per-field options |
+| `--backend kitty --source <img.png>` | Kitty image backend |
+| `--stdout` | plain output (honours `NO_COLOR`) |
+
+Run `purr --help` for the full list.
+
+### Configuration
+
+purr reads a TOML config (`purr config-path` prints its location; `purr generate`
+writes a starter file). Precedence is **defaults < config file < CLI flags**.
+Each probe is a labelled entry — either a terse string or a table of options:
+
+```toml
+[Neofetch]
+title = true
+separator = ":"
+bold = true
+
+[[Neofetch.probes]]
+OS = "OS"                      # terse form
+
+[[Neofetch.probes]]
+[Neofetch.probes.CPU]          # rich form
+label = "CPU"
+cores = "physical"
+```
+
+Use a `[Json]` table (or `--json`) for JSON output.
+
+### Parity & supported systems
+
+purr targets neofetch [`ccd5d9f`](https://github.com/dylanaraps/neofetch/blob/ccd5d9f52609bbdcd5d8fa78c4fdb0f12954125f/neofetch):
+
+- [`docs/neofetch-parity.md`](docs/neofetch-parity.md) — dated, field-by-field parity with deferred features
+- [`docs/os-support.md`](docs/os-support.md) — the 50 shipped logos and the pruned distro list
 
 ## Development
 
@@ -189,7 +236,7 @@ Q: Why not contribute to an existing fetch tool?
 A: I want to start from a clean state, including all the features the community wants, and make it truly universally supported and deployable to all common platforms.
 
 Q: What does purr use to fetch metrics under the hood?
-A: purr uses a modified version of `libmacchina` crate for majority of system-related info.
+A: purr uses the `libmacchina` crate for most system-related info, plus native probes (GPU driver, GTK font, MPRIS now-playing, …) and a neofetch-compatible renderer on top.
 
 ## Issues
 
