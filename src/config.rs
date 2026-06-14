@@ -809,6 +809,7 @@ impl ProbeConfig {
         let func: ProbeResultFunction = match self {
             Self::Disk(o) => crate::probe::disk_probe_fn(o.clone()),
             Self::GPU(o) => crate::probe::gpu_probe_fn(o.clone()),
+            Self::Song(o) => crate::probe::song_probe_fn(o.clone()),
             _ => self.probe_type().into(),
         };
         (self.label().to_string(), func)

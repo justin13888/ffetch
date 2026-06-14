@@ -19,7 +19,8 @@ use thiserror::Error;
 
 use crate::config::{
     CoresMode, CpuOptions, DeOptions, DiskOptions, DistroOptions, GpuOptions, GpuType,
-    KernelOptions, MemoryOptions, PackagesOptions, ShellOptions, SpeedType, UptimeOptions,
+    KernelOptions, MemoryOptions, PackagesOptions, ShellOptions, SongOptions, SpeedType,
+    UptimeOptions,
 };
 
 pub fn battery_readout() -> &'static BatteryReadout {
@@ -518,7 +519,7 @@ impl From<ProbeType> for ProbeResultFunction {
                     })?;
                 Ok(ProbeResultValue::Single(ProbeValue::Font(font)))
             }),
-            ProbeType::Song => Box::new(|| Err(ProbeError::Unimplemented)),
+            ProbeType::Song => song_probe_fn(SongOptions::default()),
             ProbeType::LocalIP => Box::new(|| {
                 Ok(ProbeResultValue::Single(ProbeValue::LocalIP(
                     network_readout().logical_address(None)?,
@@ -924,6 +925,129 @@ fn gpu_driver() -> Option<String> {
 #[cfg(not(target_os = "linux"))]
 fn gpu_driver() -> Option<String> {
     None
+}
+
+/// Now-playing track lookup over MPRIS (D-Bus), pure-Rust via zbus.
+#[cfg(target_os = "linux")]
+mod song {
+    use std::collections::HashMap;
+
+    use zbus::blocking::Connection;
+    use zbus::zvariant::OwnedValue;
+
+    #[zbus::proxy(
+        interface = "org.mpris.MediaPlayer2.Player",
+        default_path = "/org/mpris/MediaPlayer2"
+    )]
+    trait Player {
+        #[zbus(property)]
+        fn metadata(&self) -> zbus::Result<HashMap<String, OwnedValue>>;
+        #[zbus(property)]
+        fn playback_status(&self) -> zbus::Result<String>;
+    }
+
+    pub struct SongInfo {
+        pub artist: String,
+        pub album: String,
+        pub title: String,
+    }
+
+    /// Query MPRIS for the current track. `player` is "auto" (prefer a playing
+    /// one, else the first with metadata) or a bus-name suffix (e.g. "spotify").
+    pub fn current(player: &str) -> Option<SongInfo> {
+        let conn = Connection::session().ok()?;
+        let dbus = zbus::blocking::fdo::DBusProxy::new(&conn).ok()?;
+        let names = dbus.list_names().ok()?;
+
+        let mut fallback: Option<SongInfo> = None;
+        for name in names.into_iter().map(|n| n.as_str().to_string()) {
+            if !name.starts_with("org.mpris.MediaPlayer2.") {
+                continue;
+            }
+            if player != "auto" {
+                let suffix = name.trim_start_matches("org.mpris.MediaPlayer2.");
+                if !suffix.eq_ignore_ascii_case(player) {
+                    continue;
+                }
+            }
+            let Ok(proxy) = PlayerProxyBlocking::builder(&conn)
+                .destination(name)
+                .and_then(|b| b.build())
+            else {
+                continue;
+            };
+            let Some(info) = proxy.metadata().ok().and_then(|m| extract(&m)) else {
+                continue;
+            };
+            if proxy
+                .playback_status()
+                .map(|s| s == "Playing")
+                .unwrap_or(false)
+            {
+                return Some(info);
+            }
+            if fallback.is_none() {
+                fallback = Some(info);
+            }
+        }
+        fallback
+    }
+
+    fn extract(meta: &HashMap<String, OwnedValue>) -> Option<SongInfo> {
+        let string_of = |key: &str| {
+            meta.get(key)
+                .and_then(|v| String::try_from(v.clone()).ok())
+                .unwrap_or_default()
+        };
+        let artist = meta
+            .get("xesam:artist")
+            .and_then(|v| Vec::<String>::try_from(v.clone()).ok())
+            .map(|a| a.join(", "))
+            .unwrap_or_default();
+        let info = SongInfo {
+            artist,
+            album: string_of("xesam:album"),
+            title: string_of("xesam:title"),
+        };
+        if info.artist.is_empty() && info.album.is_empty() && info.title.is_empty() {
+            None
+        } else {
+            Some(info)
+        }
+    }
+}
+
+/// Build the now-playing probe. Selects the player and renders the configured
+/// `song_format`; `song_shorthand` drops the album. MPRIS is Linux-only.
+#[cfg(target_os = "linux")]
+pub fn song_probe_fn(opts: SongOptions) -> ProbeResultFunction {
+    Box::new(move || {
+        let info = song::current(&opts.player).ok_or(ProbeError::MetricsUnavailable)?;
+        let fmt = if opts.shorthand {
+            "%artist% - %title%"
+        } else {
+            opts.format.as_str()
+        };
+        let text = fmt
+            .replace("%artist%", &info.artist)
+            .replace("%album%", &info.album)
+            .replace("%title%", &info.title);
+        // Collapse empty " - " segments (e.g. missing album) for the default format.
+        let text = text
+            .split(" - ")
+            .filter(|p| !p.trim().is_empty())
+            .collect::<Vec<_>>()
+            .join(" - ");
+        if text.trim().is_empty() {
+            return Err(ProbeError::MetricsUnavailable);
+        }
+        Ok(ProbeResultValue::Single(ProbeValue::Song(text)))
+    })
+}
+
+#[cfg(not(target_os = "linux"))]
+pub fn song_probe_fn(_opts: SongOptions) -> ProbeResultFunction {
+    Box::new(|| Err(ProbeError::Unimplemented))
 }
 
 #[cfg(test)]

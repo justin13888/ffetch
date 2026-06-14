@@ -86,3 +86,6 @@ lto = "thin"
 [features]
 openwrt = ["libmacchina/openwrt"]
 profile = ["dep:tracing-chrome"]
+
+[target.'cfg(target_os = "linux")'.dependencies]
+zbus = "5.16.0"
