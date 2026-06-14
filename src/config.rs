@@ -95,6 +95,16 @@ pub enum ConfigWriteError {
     Serialization(#[from] toml::ser::Error),
 }
 
+fn default_separator() -> String {
+    ":".to_string()
+}
+fn default_bold() -> bool {
+    true
+}
+fn default_underline_char() -> String {
+    "-".to_string()
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct NeofetchRendererConfig {
     /// Whether to display the title
@@ -103,16 +113,31 @@ pub struct NeofetchRendererConfig {
     pub underline: bool,
     pub col: bool,
 
+    /// Separator between a label and its value (neofetch `separator`).
+    #[serde(default = "default_separator")]
+    pub separator: String,
+    /// Bold the title and labels (neofetch `bold`).
+    #[serde(default = "default_bold")]
+    pub bold: bool,
+    /// Character used for the title underline (neofetch `underline_char`).
+    #[serde(default = "default_underline_char")]
+    pub underline_char: String,
+    /// Show the fully-qualified hostname in the title (neofetch `title_fqdn`).
+    #[serde(default)]
+    pub title_fqdn: bool,
+    /// 256-colour text slots `[title, @, underline, subtitle, colon, info]`
+    /// (neofetch `colors`). Empty means use the distro's logo colour.
+    #[serde(default)]
+    pub colors: Vec<u8>,
+
     pub probes: Vec<ProbeConfig>,
 }
 
 impl NeofetchRendererConfig {
     pub fn default_all() -> Self {
         Self {
-            title: true,
-            underline: true,
-            col: true,
             probes: ProbeConfig::default_all(),
+            ..Self::default()
         }
     }
 }
@@ -123,6 +148,11 @@ impl Default for NeofetchRendererConfig {
             title: true,
             underline: true,
             col: true,
+            separator: default_separator(),
+            bold: default_bold(),
+            underline_char: default_underline_char(),
+            title_fqdn: false,
+            colors: Vec::new(),
             probes: ProbeConfig::default_neofetch(),
         }
     }
