@@ -11,7 +11,27 @@ license = "MIT"
 keywords = ["system", "cli", "fetch"]
 publish = true
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+# Config for 'dist'
+[workspace.metadata.dist]
+# The preferred dist version to use in CI (Cargo.toml SemVer syntax)
+cargo-dist-version = "0.32.0"
+# CI backends to support
+ci = "github"
+# The installers to generate for each app
+installers = ["shell", "powershell", "homebrew"]
+# A GitHub repo to push Homebrew formulas to
+tap = "justin13888/homebrew-tap"
+# Homebrew formula/command name. The crate publishes as `purrfetch` (the crates.io
+# name), but the binary and Homebrew formula are `purr` (`brew install …/tap/purr`).
+formula = "purr"
+# Publish jobs to run in CI (push the generated formula to the tap above)
+publish-jobs = ["homebrew"]
+# Target platforms to build apps for (Rust target-triple syntax)
+targets = ["aarch64-apple-darwin", "aarch64-unknown-linux-gnu", "x86_64-apple-darwin", "x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc"]
+# Path that installers should place binaries in
+install-path = "CARGO_HOME"
+# Whether to install an updater program
+install-updater = false
 
 [lib]
 name = "purr_lib"
@@ -57,6 +77,11 @@ codegen-units = 1
 [profile.profiling]
 inherits = "release"
 debug = true
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"
 
 [features]
 openwrt = ["libmacchina/openwrt"]

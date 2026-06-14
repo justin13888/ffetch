@@ -24,6 +24,20 @@ Perfect for sharing your [rice](https://www.reddit.com/r/unixporn/) or showing s
 cargo install --locked purrfetch
 ```
 
+### Prebuilt binaries
+
+Download a binary for your platform from the [latest release](https://github.com/justin13888/purr/releases/latest), or use the install script:
+
+```bash
+# Linux & macOS
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/justin13888/purr/releases/latest/download/purrfetch-installer.sh | sh
+```
+
+```powershell
+# Windows
+powershell -ExecutionPolicy Bypass -c "irm https://github.com/justin13888/purr/releases/latest/download/purrfetch-installer.ps1 | iex"
+```
+
 <!-- ### Alpine Linux -->
 
 <!-- TODO: Support Alpine -->
@@ -53,12 +67,11 @@ sudo dnf install purr
 
 <!-- TODO: Support Nix -->
 
-<!-- ### Homebrew (MacOS)
+### Homebrew (macOS & Linux)
 
 ```bash
-brew install justin13888/purr
-``` -->
-<!-- TODO: Setup homebrew -->
+brew install justin13888/tap/purr
+```
 
 <!-- ### Winget (Windows)
 
@@ -84,15 +97,27 @@ To install via Git, follow these steps:
 - Run `cargo build` to build the project
 - Use `cargo run` to run the project
 
+### Tooling
+
+Dev tools (`just`, `lefthook`, `convco`) are managed with [mise](https://mise.jdx.dev/). Install mise, then provision them:
+
+```bash
+mise install
+```
+
+Ensure mise is [activated](https://mise.jdx.dev/getting-started.html) in your shell (or use its shims) so the tools are on your `PATH`.
+
 ### Git Hooks
 
-This project uses [lefthook](https://github.com/evilmartians/lefthook) to manage git hooks.
-
-Install lefthook and set up the hooks:
+This project uses [lefthook](https://github.com/evilmartians/lefthook) to manage git hooks: formatting, linting, and tests, plus commit-message linting on commit and push. After `mise install`, enable them:
 
 ```bash
 lefthook install
 ```
+
+### Commit messages
+
+Commits must follow [Conventional Commits](https://www.conventionalcommits.org/) — enforced by `convco` (commit-msg hook, pre-push, and CI). Version bumps, the `CHANGELOG.md`, and releases are automated from these messages by [release-plz](https://release-plz.dev/).
 
 ### Benchmarking
 

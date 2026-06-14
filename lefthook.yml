@@ -1,3 +1,9 @@
+commit-msg:
+  commands:
+    convco:
+      # {1} is the path to the commit message file.
+      run: just commit-msg-check {1}
+
 pre-commit:
   piped: true
   commands:
@@ -19,3 +25,5 @@ pre-push:
       run: just lint-check
     test:
       run: just test
+    commit-lint:
+      run: just commit-check

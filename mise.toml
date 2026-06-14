@@ -1,0 +1,6 @@
+# Dev tooling for purr. Run `mise install` to provision everything below.
+# Rust itself is managed by rust-toolchain.toml, not mise.
+[tools]
+just = "1.52.0"           # task runner (see justfile)
+lefthook = "2.1.9"        # git hooks (see lefthook.yml)
+"cargo:convco" = "0.6.4"  # Conventional Commits linter (built from source; not in mise's registry)
