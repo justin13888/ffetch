@@ -505,7 +505,19 @@ impl From<ProbeType> for ProbeResultFunction {
                     },
                 )))
             }),
-            ProbeType::Font => Box::new(|| Err(ProbeError::Unimplemented)),
+            ProbeType::Font => Box::new(|| {
+                // Mirror Theme/Icons: GNOME interface font, then GTK3 settings.ini.
+                let font =
+                    gsettings_get("org.gnome.desktop.interface", "font-name").or_else(|_| {
+                        let home =
+                            std::env::var("HOME").map_err(|_| ProbeError::MetricsUnavailable)?;
+                        parse_ini_key(
+                            std::path::Path::new(&format!("{}/.config/gtk-3.0/settings.ini", home)),
+                            "gtk-font-name",
+                        )
+                    })?;
+                Ok(ProbeResultValue::Single(ProbeValue::Font(font)))
+            }),
             ProbeType::Song => Box::new(|| Err(ProbeError::Unimplemented)),
             ProbeType::LocalIP => Box::new(|| {
                 Ok(ProbeResultValue::Single(ProbeValue::LocalIP(
