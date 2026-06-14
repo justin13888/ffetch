@@ -480,7 +480,10 @@ impl From<ProbeType> for ProbeResultFunction {
             ProbeType::Network => Box::new(|| Err(ProbeError::Unimplemented)),
             ProbeType::Bluetooth => Box::new(|| Err(ProbeError::Unimplemented)),
             ProbeType::BIOS => Box::new(|| Err(ProbeError::Unimplemented)),
-            ProbeType::GPUDriver => Box::new(|| Err(ProbeError::Unimplemented)),
+            ProbeType::GPUDriver => Box::new(|| {
+                let driver = gpu_driver().ok_or(ProbeError::MetricsUnavailable)?;
+                Ok(ProbeResultValue::Single(ProbeValue::GPUDriver(driver)))
+            }),
             ProbeType::CPUUsage => Box::new(|| {
                 let _span = debug_span!("cpu_usage_poll").entered();
                 Ok(ProbeResultValue::Single(ProbeValue::CPUUsage(
@@ -876,6 +879,39 @@ fn is_integrated_gpu(name: &str) -> bool {
         ]
         .iter()
         .any(|c| n.contains(c))
+}
+
+/// Kernel driver(s) bound to the display controller(s), read from sysfs
+/// (the `driver` symlink of each PCI device with class `0x03xx`). Returns e.g.
+/// "amdgpu" or "i915, nvidia". Linux-only.
+#[cfg(target_os = "linux")]
+fn gpu_driver() -> Option<String> {
+    use std::fs;
+    let mut drivers: Vec<String> = Vec::new();
+    for entry in fs::read_dir("/sys/bus/pci/devices").ok()?.flatten() {
+        let path = entry.path();
+        let Ok(class) = fs::read_to_string(path.join("class")) else {
+            continue;
+        };
+        // 0x03xxxx = display controller (VGA / 3D / other display).
+        if !class.trim_start().starts_with("0x03") {
+            continue;
+        }
+        if let Ok(link) = fs::read_link(path.join("driver"))
+            && let Some(name) = link.file_name()
+        {
+            let d = name.to_string_lossy().to_string();
+            if !drivers.contains(&d) {
+                drivers.push(d);
+            }
+        }
+    }
+    (!drivers.is_empty()).then(|| drivers.join(", "))
+}
+
+#[cfg(not(target_os = "linux"))]
+fn gpu_driver() -> Option<String> {
+    None
 }
 
 #[cfg(test)]
