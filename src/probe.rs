@@ -335,9 +335,17 @@ impl From<ProbeType> for ProbeResultFunction {
                 )))
             }),
             ProbeType::OS => Box::new(|| {
-                Ok(ProbeResultValue::Single(ProbeValue::OS(
-                    general_readout().os_name()?,
-                )))
+                // libmacchina's `os_name` is unimplemented on Linux, so fall back to the
+                // distribution pretty-name (e.g. "Fedora Linux 44 (Silverblue)"). Append
+                // the machine architecture, matching neofetch's default `os_arch=on`.
+                let name = general_readout()
+                    .os_name()
+                    .or_else(|_| general_readout().distribution())?;
+                Ok(ProbeResultValue::Single(ProbeValue::OS(format!(
+                    "{} {}",
+                    name,
+                    std::env::consts::ARCH
+                ))))
             }),
             ProbeType::Distro => Box::new(|| {
                 Ok(ProbeResultValue::Single(ProbeValue::Distro(
