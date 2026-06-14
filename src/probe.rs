@@ -17,6 +17,8 @@ use serde::{Deserialize, Serialize};
 use sysinfo::{Disks, Users};
 use thiserror::Error;
 
+use crate::config::{CoresMode, CpuOptions, SpeedType};
+
 pub fn battery_readout() -> &'static BatteryReadout {
     use libmacchina::traits::BatteryReadout as _;
     static COMPUTATION: OnceLock<BatteryReadout> = OnceLock::new();
@@ -718,7 +720,7 @@ impl ProbeValue {
             ProbeValue::Cursor(cursor) => cursor.to_string(),
             ProbeValue::Terminal(terminal) => terminal.to_string(),
             ProbeValue::TerminalFont(terminal_font) => terminal_font.to_string(),
-            ProbeValue::CPU(cpu) => format_cpu(cpu),
+            ProbeValue::CPU(cpu) => format_cpu(cpu, &CpuOptions::default()),
             ProbeValue::GPU(gpu) => gpu.to_string(),
             ProbeValue::Memory(used, total) => {
                 format!("{}MiB / {}MiB", *used / 1024, *total / 1024,)
@@ -750,19 +752,37 @@ impl ProbeValue {
     }
 }
 
-/// Format a raw CPU model into neofetch's CPU line: cruft stripped, with the
-/// logical core count and max clock appended, e.g.
+/// Format a raw CPU model into neofetch's CPU line, honoring [`CpuOptions`]:
+/// cruft stripped, optional brand, core count, and max clock, e.g.
 /// "AMD Ryzen 7 7800X3D (16) @ 5.053GHz".
-fn format_cpu(model: &str) -> String {
+pub fn format_cpu(model: &str, opts: &CpuOptions) -> String {
     use libmacchina::traits::GeneralReadout as _;
 
     let mut cpu = clean_cpu_model(model);
-    if let Ok(cores) = general_readout().cpu_cores() {
-        cpu.push_str(&format!(" ({})", cores));
+
+    // `cpu_brand = off`: drop the leading brand token (e.g. "AMD", "Intel"),
+    // matching neofetch.
+    if !opts.brand
+        && let Some((_brand, rest)) = cpu.split_once(' ')
+    {
+        cpu = rest.to_string();
     }
-    if let Some(ghz) = cpu_max_ghz() {
+
+    let cores = match opts.cores {
+        CoresMode::Logical => general_readout().cpu_cores().ok(),
+        CoresMode::Physical => general_readout().cpu_physical_cores().ok(),
+        CoresMode::Off => None,
+    };
+    if let Some(n) = cores {
+        cpu.push_str(&format!(" ({})", n));
+    }
+
+    if opts.speed
+        && let Some(ghz) = cpu_max_ghz(opts.speed_type, opts.speed_shorthand)
+    {
         cpu.push_str(&format!(" @ {}GHz", ghz));
     }
+
     cpu
 }
 
@@ -787,16 +807,36 @@ fn clean_cpu_model(model: &str) -> String {
         .join(" ")
 }
 
-/// Read the CPU's max frequency from sysfs and render it as GHz (e.g.
-/// "5.053"), matching neofetch. Returns `None` when sysfs is unavailable.
-fn cpu_max_ghz() -> Option<String> {
+/// Read the CPU's frequency from sysfs and render it as GHz, matching neofetch.
+///
+/// `speed_type` selects which cpufreq file to read first; the others are tried
+/// as fallbacks (some are absent on VMs / certain governors). `shorthand`
+/// rounds to a single decimal (e.g. "5.1") instead of the full "5.053".
+/// Returns `None` when sysfs is unavailable.
+fn cpu_max_ghz(speed_type: SpeedType, shorthand: bool) -> Option<String> {
     let base = "/sys/devices/system/cpu/cpu0/cpufreq";
-    for file in ["bios_limit", "scaling_max_freq", "cpuinfo_max_freq"] {
+    let primary = match speed_type {
+        SpeedType::BiosLimit => "bios_limit",
+        SpeedType::ScalingCurFreq => "scaling_cur_freq",
+        SpeedType::ScalingMinFreq => "scaling_min_freq",
+        SpeedType::ScalingMaxFreq => "scaling_max_freq",
+    };
+    for file in [
+        primary,
+        "bios_limit",
+        "scaling_max_freq",
+        "cpuinfo_max_freq",
+    ] {
         if let Ok(contents) = std::fs::read_to_string(format!("{base}/{file}"))
             && let Ok(khz) = contents.trim().parse::<u64>()
         {
             let mhz = khz / 1000;
-            return Some(format!("{}.{:03}", mhz / 1000, mhz % 1000));
+            return Some(if shorthand {
+                let tenths = (mhz + 50) / 100; // round to nearest 0.1 GHz
+                format!("{}.{}", tenths / 10, tenths % 10)
+            } else {
+                format!("{}.{:03}", mhz / 1000, mhz % 1000)
+            });
         }
     }
     None
@@ -804,7 +844,32 @@ fn cpu_max_ghz() -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::clean_cpu_model;
+    use super::{clean_cpu_model, format_cpu};
+    use crate::config::{CoresMode, CpuOptions};
+
+    #[test]
+    fn cpu_brand_off_drops_leading_token() {
+        let opts = CpuOptions {
+            brand: false,
+            cores: CoresMode::Off,
+            speed: false,
+            ..Default::default()
+        };
+        assert_eq!(format_cpu("AMD Ryzen 7 7800X3D", &opts), "Ryzen 7 7800X3D");
+    }
+
+    #[test]
+    fn cpu_default_brand_no_cores_no_speed_keeps_model() {
+        let opts = CpuOptions {
+            cores: CoresMode::Off,
+            speed: false,
+            ..Default::default()
+        };
+        assert_eq!(
+            format_cpu("AMD Ryzen 7 7800X3D", &opts),
+            "AMD Ryzen 7 7800X3D"
+        );
+    }
 
     #[test]
     fn strips_amd_core_and_processor() {

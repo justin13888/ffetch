@@ -573,12 +573,13 @@ impl ProbeConfig {
         (self.label().to_string(), self.probe_type().into())
     }
 
-    /// Render a probed value for this probe, honoring its options.
-    ///
-    /// Currently delegates to the option-free [`ProbeValue::format`]; per-probe
-    /// option handling layers onto this in subsequent changes.
+    /// Render a probed value for this probe, honoring its options. Falls back
+    /// to the option-free [`ProbeValue::format`] for probes without options.
     pub fn format_value(&self, value: &ProbeValue) -> String {
-        value.format()
+        match (self, value) {
+            (Self::CPU(o), ProbeValue::CPU(model)) => crate::probe::format_cpu(model, o),
+            _ => value.format(),
+        }
     }
 }
 
