@@ -34,6 +34,10 @@ run = "cargo test"
 description = "Build and run purr (forward args: mise run start -- <args>)"
 run = "cargo run --"
 
+[tasks.install]
+description = "Build purr in release mode and install the binary to CARGO_HOME/bin"
+run = "cargo install --path . --locked"
+
 [tasks.commit-check]
 description = "Verify this branch's commits (vs origin/master) follow Conventional Commits"
 run = "convco check origin/master..HEAD"
