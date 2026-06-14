@@ -94,26 +94,40 @@ To install via Git, follow these steps:
 ## Development
 
 - Clone this repository
+- Run `mise install` to provision the dev tools and git hooks (see [Tooling](#tooling))
 - Run `cargo build` to build the project
-- Use `cargo run` to run the project
+- Use `mise run start` (or `cargo run`) to run the project
 
 ### Tooling
 
-Dev tools (`just`, `lefthook`, `convco`) are managed with [mise](https://mise.jdx.dev/). Install mise, then provision them:
+Dev tools (`hk`, `convco`) and task running are managed with [mise](https://mise.jdx.dev/). Install mise, then provision everything and install the git hooks in one step:
 
 ```bash
 mise install
 ```
 
-Ensure mise is [activated](https://mise.jdx.dev/getting-started.html) in your shell (or use its shims) so the tools are on your `PATH`.
+This installs the tools and, via a `postinstall` hook, runs `hk install --mise` to set up the git hooks. Ensure mise is [activated](https://mise.jdx.dev/getting-started.html) in your shell (or use its shims) so the tools and tasks are on your `PATH`.
+
+Common tasks (run `mise tasks` to list them all):
+
+```bash
+mise run start        # build and run purr (forward args: mise run start -- <args>)
+mise run test         # run the test suite
+mise run fmt          # format code in place
+mise run lint         # auto-fix clippy lints, then verify
+mise run fmt-check    # verify formatting without modifying files
+mise run lint-check   # verify clippy lints without modifying files
+```
 
 ### Git Hooks
 
-This project uses [lefthook](https://github.com/evilmartians/lefthook) to manage git hooks: formatting, linting, and tests, plus commit-message linting on commit and push. After `mise install`, enable them:
+This project uses [hk](https://hk.jdx.dev/) (configured in `hk.pkl`) to manage git hooks, which run through mise:
 
-```bash
-lefthook install
-```
+- **pre-commit** — format and clippy-fix staged Rust files, re-staging the results
+- **pre-push** — formatting, lint, and test checks, plus a Conventional Commits check
+- **commit-msg** — Conventional Commits linting via `convco`
+
+`mise install` installs these automatically. To (re)install them manually, run `hk install --mise`.
 
 ### Commit messages
 

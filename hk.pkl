@@ -1,0 +1,54 @@
+amends "package://github.com/jdx/hk/releases/download/v1.48.0/hk@1.48.0#/Config.pkl"
+
+// Git hooks for purr. Steps delegate to mise tasks (see mise.toml) so the commands
+// stay defined in one place. Install with `hk install --mise` (done automatically by
+// `mise install` via the postinstall hook).
+hooks {
+  // Format and clippy-fix staged Rust files, then re-stage the results into the commit.
+  ["pre-commit"] {
+    fix = true
+    stash = "git"
+    steps {
+      ["fmt"] {
+        glob = "*.rs"
+        check = "mise run fmt-check"
+        fix = "mise run fmt"
+        stage = "*.rs"
+      }
+      ["lint"] {
+        glob = "*.rs"
+        check = "mise run lint-check"
+        fix = "mise run lint"
+        stage = "*.rs"
+        depends = "fmt" // serialize fmt -> clippy-fix to avoid file races
+      }
+    }
+  }
+
+  // CI-grade verification before pushing: no modifications, fail on any issue.
+  ["pre-push"] {
+    steps {
+      ["fmt-check"] {
+        check = "mise run fmt-check"
+      }
+      ["lint-check"] {
+        check = "mise run lint-check"
+      }
+      ["test"] {
+        check = "mise run test"
+      }
+      ["commit-check"] {
+        check = "mise run commit-check"
+      }
+    }
+  }
+
+  // Lint the commit message ({{commit_msg_file}} is the path git passes to the hook).
+  ["commit-msg"] {
+    steps {
+      ["convco"] {
+        check = "mise run commit-msg-check {{commit_msg_file}}"
+      }
+    }
+  }
+}
