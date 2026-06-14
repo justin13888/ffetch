@@ -107,14 +107,18 @@ impl NeofetchRenderer {
         let n_probes = self.probe_list.len();
         // Column (0-based) where values start: ascii + "   " + padded_title + " "
         let value_col = (ascii_width + 3 + max_title_len + 2) as u16;
+        // Per-probe config, aligned with `probe_list` by index, for option-aware formatting.
+        let probes = &self.config.probes;
 
         if !is_tty {
             // Non-TTY: run probes in parallel, print results sequentially
             let mut all_results: Vec<Option<Vec<String>>> = vec![None; n_probes];
             execute_probes_streaming(&self.probe_list, |index, _, result| {
                 all_results[index] = Some(match result {
-                    Some(ProbeResultValue::Single(v)) => vec![v.format()],
-                    Some(ProbeResultValue::Multiple(vs)) => vs.iter().map(|v| v.format()).collect(),
+                    Some(ProbeResultValue::Single(v)) => vec![probes[index].format_value(&v)],
+                    Some(ProbeResultValue::Multiple(vs)) => {
+                        vs.iter().map(|v| probes[index].format_value(v)).collect()
+                    }
                     None => vec![],
                 });
             });
@@ -175,8 +179,10 @@ impl NeofetchRenderer {
 
             execute_probes_streaming(&self.probe_list, |index, _label, result| {
                 let strings: Vec<String> = match result {
-                    Some(ProbeResultValue::Single(v)) => vec![v.format()],
-                    Some(ProbeResultValue::Multiple(vs)) => vs.iter().map(|v| v.format()).collect(),
+                    Some(ProbeResultValue::Single(v)) => vec![probes[index].format_value(&v)],
+                    Some(ProbeResultValue::Multiple(vs)) => {
+                        vs.iter().map(|v| probes[index].format_value(v)).collect()
+                    }
                     None => vec![],
                 };
 
