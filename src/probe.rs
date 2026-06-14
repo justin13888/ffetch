@@ -628,6 +628,53 @@ pub enum ProbeType {
     Rust,
 }
 
+impl ProbeType {
+    /// Stable machine-readable key for this metric (used by JSON output).
+    pub fn id(&self) -> &'static str {
+        match self {
+            ProbeType::Host => "host",
+            ProbeType::OS => "os",
+            ProbeType::Model => "model",
+            ProbeType::Kernel => "kernel",
+            ProbeType::Distro => "distro",
+            ProbeType::Uptime => "uptime",
+            ProbeType::Packages => "packages",
+            ProbeType::Shell => "shell",
+            ProbeType::Editor => "editor",
+            ProbeType::Resolution => "resolution",
+            ProbeType::DE => "de",
+            ProbeType::WM => "wm",
+            ProbeType::WMTheme => "wm_theme",
+            ProbeType::Theme => "theme",
+            ProbeType::Icons => "icons",
+            ProbeType::Cursor => "cursor",
+            ProbeType::Terminal => "terminal",
+            ProbeType::TerminalFont => "terminal_font",
+            ProbeType::CPU => "cpu",
+            ProbeType::GPU => "gpu",
+            ProbeType::Memory => "memory",
+            ProbeType::Network => "network",
+            ProbeType::Bluetooth => "bluetooth",
+            ProbeType::BIOS => "bios",
+            ProbeType::GPUDriver => "gpu_driver",
+            ProbeType::CPUUsage => "cpu_usage",
+            ProbeType::Disk => "disk",
+            ProbeType::Battery => "battery",
+            ProbeType::PowerAdapter => "power_adapter",
+            ProbeType::Font => "font",
+            ProbeType::Song => "song",
+            ProbeType::LocalIP => "local_ip",
+            ProbeType::PublicIP => "public_ip",
+            ProbeType::Users => "users",
+            ProbeType::Locale => "locale",
+            ProbeType::Java => "java",
+            ProbeType::Python => "python",
+            ProbeType::Node => "node",
+            ProbeType::Rust => "rust",
+        }
+    }
+}
+
 pub enum ProbeResultValue {
     Single(ProbeValue),
     Multiple(Vec<ProbeValue>),

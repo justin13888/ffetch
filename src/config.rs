@@ -8,10 +8,12 @@ use crate::probe::{ProbeResultFunction, ProbeType, ProbeValue};
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub enum Config {
     Neofetch(NeofetchRendererConfig),
+    Json(JsonRendererConfig),
 }
 
 pub enum RendererOverride {
     Neofetch,
+    Json,
 }
 
 impl Config {
@@ -28,6 +30,11 @@ impl Config {
     /// Default config replicating neofetch with all features enabled
     pub fn default_neofetch_all() -> Self {
         Self::Neofetch(NeofetchRendererConfig::default_all())
+    }
+
+    /// Default config emitting JSON.
+    pub fn default_json() -> Self {
+        Self::Json(JsonRendererConfig::default())
     }
 
     /// Load config from a file
@@ -228,6 +235,20 @@ impl Default for NeofetchRendererConfig {
             color_blocks: ColorBlocks::default(),
             ascii: AsciiOptions::default(),
             probes: ProbeConfig::default_neofetch(),
+        }
+    }
+}
+
+/// Configuration for the JSON output renderer.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct JsonRendererConfig {
+    pub probes: Vec<ProbeConfig>,
+}
+
+impl Default for JsonRendererConfig {
+    fn default() -> Self {
+        Self {
+            probes: ProbeConfig::default_all(),
         }
     }
 }
@@ -860,6 +881,11 @@ impl ProbeConfig {
         }
     }
 
+    /// Stable machine-readable key for this probe (used by JSON output).
+    pub fn id(&self) -> &'static str {
+        self.probe_type().id()
+    }
+
     /// The underlying metric this probe gathers.
     fn probe_type(&self) -> ProbeType {
         match self {
@@ -951,6 +977,7 @@ mod tests {
         let back: Config = toml::from_str(&serialized).expect("deserialize");
         match back {
             Config::Neofetch(c) => assert!(!c.probes.is_empty()),
+            Config::Json(_) => panic!("expected Neofetch"),
         }
     }
 
@@ -977,6 +1004,7 @@ probes = [
                     other => panic!("expected CPU, got {other:?}"),
                 }
             }
+            Config::Json(_) => panic!("expected Neofetch"),
         }
     }
 

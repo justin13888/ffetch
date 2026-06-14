@@ -9,7 +9,7 @@ use tracing::{Level, debug, info, info_span};
 
 use purr_lib::{
     config::{Config, RendererOverride},
-    renderer::neofetch::NeofetchRenderer,
+    renderer::{json::JsonRenderer, neofetch::NeofetchRenderer},
 };
 
 // TODO: Include 'libmacchina' version in version command
@@ -215,6 +215,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             };
             let _span = info_span!("render").entered();
             renderer.draw()?;
+        }
+        Config::Json(json_config) => {
+            let _span = info_span!("render").entered();
+            JsonRenderer::new(json_config).draw()?;
         }
     };
 
