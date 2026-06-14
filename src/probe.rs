@@ -18,7 +18,8 @@ use sysinfo::{Disks, Users};
 use thiserror::Error;
 
 use crate::config::{
-    CoresMode, CpuOptions, DistroOptions, KernelOptions, MemoryOptions, SpeedType, UptimeOptions,
+    CoresMode, CpuOptions, DeOptions, DistroOptions, KernelOptions, MemoryOptions, PackagesOptions,
+    ShellOptions, SpeedType, UptimeOptions,
 };
 
 pub fn battery_readout() -> &'static BatteryReadout {
@@ -224,13 +225,15 @@ pub enum ProbeValue {
     /// E.g. [("dpkg", 123)]
     Packages(Vec<(String, usize)>),
     /// E.g. "zsh 5.8.1"
-    Shell(String),
+    /// Shell name + optional version, e.g. ("zsh", Some("5.9")).
+    Shell(String, Option<String>),
     /// E.g. "vim 8.2" // TODO: CHECK THIS example
     Editor(String),
     /// E.g. "1920x1080"
     Resolution(String),
     /// E.g. "GNOME", "hyprland", "Fluent" (Windows)
-    DE(String),
+    /// Desktop environment name + optional version, e.g. ("GNOME", Some("46.0")).
+    DE(String, Option<String>),
     /// E.g. "Mutter"
     WM(String),
     /// E.g. "Adwaita" // TODO: CHECK
@@ -380,12 +383,14 @@ impl From<ProbeType> for ProbeResultFunction {
                 )))
             }),
             ProbeType::Shell => Box::new(|| {
-                Ok(ProbeResultValue::Single(ProbeValue::Shell(
-                    general_readout()
-                        .shell(ShellFormat::Relative, ShellKind::Current)?
-                        .trim()
-                        .to_string(),
-                )))
+                let name = general_readout()
+                    .shell(ShellFormat::Relative, ShellKind::Current)?
+                    .trim()
+                    .to_string();
+                // Gather the version here (in the parallel probe thread) so the
+                // renderer never shells out on its hot path.
+                let version = shell_version(&name);
+                Ok(ProbeResultValue::Single(ProbeValue::Shell(name, version)))
             }),
             ProbeType::Editor => Box::new(|| {
                 let editor = std::env::var("VISUAL")
@@ -399,9 +404,9 @@ impl From<ProbeType> for ProbeResultFunction {
                 )))
             }),
             ProbeType::DE => Box::new(|| {
-                Ok(ProbeResultValue::Single(ProbeValue::DE(
-                    general_readout().desktop_environment()?,
-                )))
+                let name = general_readout().desktop_environment()?;
+                let version = de_version(&name);
+                Ok(ProbeResultValue::Single(ProbeValue::DE(name, version)))
             }),
             ProbeType::WM => Box::new(|| {
                 Ok(ProbeResultValue::Single(ProbeValue::WM(
@@ -673,15 +678,13 @@ impl ProbeValue {
             ProbeValue::Model(vendor, product) => format!("{} {}", vendor, product),
             ProbeValue::Kernel(kernel) => KernelOptions::default().format(kernel),
             ProbeValue::Uptime(uptime) => UptimeOptions::default().format(*uptime),
-            ProbeValue::Packages(counts) => counts
-                .iter()
-                .map(|(manager, count)| format!("{} ({})", count, manager))
-                .collect::<Vec<_>>()
-                .join(", "),
-            ProbeValue::Shell(shell) => shell.to_string(),
+            ProbeValue::Packages(counts) => PackagesOptions::default().format(counts),
+            ProbeValue::Shell(name, version) => {
+                ShellOptions::default().format(name, version.as_deref())
+            }
             ProbeValue::Editor(editor) => editor.to_string(),
             ProbeValue::Resolution(resolution) => resolution.to_string(),
-            ProbeValue::DE(de) => de.to_string(),
+            ProbeValue::DE(name, version) => DeOptions::default().format(name, version.as_deref()),
             ProbeValue::WM(wm) => wm.to_string(),
             ProbeValue::WMTheme(wm_theme) => wm_theme.to_string(),
             ProbeValue::Theme(theme) => theme.to_string(),
@@ -807,6 +810,48 @@ fn cpu_max_ghz(speed_type: SpeedType, shorthand: bool) -> Option<String> {
         }
     }
     None
+}
+
+/// Best-effort shell version (e.g. "5.9") by running `<shell> --version` and
+/// taking the first version-looking token.
+fn shell_version(name: &str) -> Option<String> {
+    let bin = name.rsplit('/').next().unwrap_or(name);
+    let out = run_command(bin, &["--version"]).ok()?;
+    let line = out.lines().next()?;
+    line.split_whitespace()
+        .find(|t| t.contains('.') && t.chars().any(|c| c.is_ascii_digit()))
+        .map(|t| t.split(['(', '-']).next().unwrap_or(t).to_string())
+}
+
+/// Best-effort desktop-environment version, mirroring neofetch's per-DE
+/// `--version` commands and taking the trailing version token.
+fn de_version(de: &str) -> Option<String> {
+    let (bin, arg) = if de.starts_with("Plasma") || de.contains("KDE") {
+        ("plasmashell", "--version")
+    } else if de.starts_with("MATE") {
+        ("mate-session", "--version")
+    } else if de.starts_with("Xfce") {
+        ("xfce4-session", "--version")
+    } else if de.starts_with("GNOME") {
+        ("gnome-shell", "--version")
+    } else if de.starts_with("Cinnamon") {
+        ("cinnamon", "--version")
+    } else if de.starts_with("Budgie") {
+        ("budgie-desktop", "--version")
+    } else if de.starts_with("LXQt") {
+        ("lxqt-session", "--version")
+    } else {
+        return None;
+    };
+    let out = run_command(bin, &[arg]).ok()?;
+    let line = out.lines().next()?;
+    // Strip a trailing "(...)" then take the last whitespace token, like neofetch.
+    let cleaned = line.split('(').next().unwrap_or(line).trim();
+    cleaned
+        .split_whitespace()
+        .next_back()
+        .map(|s| s.trim_matches('"').to_string())
+        .filter(|s| !s.is_empty())
 }
 
 #[cfg(test)]

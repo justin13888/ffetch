@@ -496,6 +496,62 @@ impl DistroOptions {
     }
 }
 
+impl ShellOptions {
+    /// Render the shell `name` (or the `$SHELL` path), optionally with `version`.
+    pub fn format(&self, name: &str, version: Option<&str>) -> String {
+        let mut s = if self.path {
+            std::env::var("SHELL").unwrap_or_else(|_| name.to_string())
+        } else {
+            name.to_string()
+        };
+        if self.version
+            && let Some(v) = version
+        {
+            s.push(' ');
+            s.push_str(v);
+        }
+        s
+    }
+}
+
+impl DeOptions {
+    /// Render the desktop-environment `name`, optionally with `version`.
+    pub fn format(&self, name: &str, version: Option<&str>) -> String {
+        let mut s = name.to_string();
+        if self.version
+            && let Some(v) = version
+        {
+            s.push(' ');
+            s.push_str(v);
+        }
+        s
+    }
+}
+
+impl PackagesOptions {
+    /// Render package `counts` per the `package_managers` verbosity: per-manager
+    /// breakdown (on), total with manager names (tiny), or bare total (off).
+    pub fn format(&self, counts: &[(String, usize)]) -> String {
+        let total: usize = counts.iter().map(|(_, c)| c).sum();
+        match self.display {
+            PackageDisplay::On => counts
+                .iter()
+                .map(|(m, c)| format!("{c} ({m})"))
+                .collect::<Vec<_>>()
+                .join(", "),
+            PackageDisplay::Tiny => {
+                let names = counts
+                    .iter()
+                    .map(|(m, _)| m.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("{total} ({names})")
+            }
+            PackageDisplay::Off => total.to_string(),
+        }
+    }
+}
+
 /// Probe config. Each variant selects a metric and carries its display label
 /// plus any neofetch-style options. Refer to [`ProbeValue`] for what each
 /// metric corresponds to.
@@ -715,6 +771,9 @@ impl ProbeConfig {
             (Self::Kernel(o), ProbeValue::Kernel(v)) => o.format(v),
             (Self::Uptime(o), ProbeValue::Uptime(s)) => o.format(*s),
             (Self::Memory(o), ProbeValue::Memory(u, t)) => o.format(*u, *t),
+            (Self::Shell(o), ProbeValue::Shell(name, ver)) => o.format(name, ver.as_deref()),
+            (Self::DE(o), ProbeValue::DE(name, ver)) => o.format(name, ver.as_deref()),
+            (Self::Packages(o), ProbeValue::Packages(counts)) => o.format(counts),
             _ => value.format(),
         }
     }
@@ -817,5 +876,29 @@ probes = [
             ..Default::default()
         };
         assert_eq!(tiny.format("Fedora Linux 44 (Silverblue)"), "Fedora");
+    }
+
+    #[test]
+    fn packages_display_modes() {
+        let counts = vec![
+            ("rpm".to_string(), 1998usize),
+            ("cargo".to_string(), 55),
+            ("flatpak".to_string(), 69),
+        ];
+        let on = PackagesOptions {
+            display: PackageDisplay::On,
+            ..Default::default()
+        };
+        assert_eq!(on.format(&counts), "1998 (rpm), 55 (cargo), 69 (flatpak)");
+        let tiny = PackagesOptions {
+            display: PackageDisplay::Tiny,
+            ..Default::default()
+        };
+        assert_eq!(tiny.format(&counts), "2122 (rpm, cargo, flatpak)");
+        let off = PackagesOptions {
+            display: PackageDisplay::Off,
+            ..Default::default()
+        };
+        assert_eq!(off.format(&counts), "2122");
     }
 }
