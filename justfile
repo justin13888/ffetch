@@ -1,16 +1,24 @@
 default:
     @just --list
 
-format:
-    cargo fmt --check
-
-format-fix:
+# Format code in place
+fmt:
     cargo fmt
 
-lint:
-    cargo clippy
+# Verify formatting without modifying files
+fmt-check:
+    cargo fmt --check
 
-# clippy --fix exits 0 even on failure; re-run clippy to surface errors
-lint-fix:
+# clippy --fix exits 0 even on failure, so re-run a strict check afterwards
+# Auto-fix clippy lints, then verify nothing remains
+lint:
     cargo clippy --fix --allow-dirty --allow-staged
-    cargo clippy
+    just lint-check
+
+# Verify clippy lints without modifying files (CI-grade)
+lint-check:
+    cargo clippy -- -D warnings
+
+# Run the test suite
+test:
+    cargo test

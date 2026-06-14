@@ -1,21 +1,21 @@
 pre-commit:
   piped: true
   commands:
-    format-fix:
+    fmt:
       priority: 1
-      run: just format-fix
-    lint-fix:
+      run: just fmt
+    lint:
       priority: 2
-      run: just lint-fix
+      run: just lint
     check-modified:
       priority: 3
       run: 'git diff --exit-code --quiet || (echo "Files were modified by cargo fmt or cargo clippy --fix. Please review and re-stage the changes." && exit 1)'
 
 pre-push:
   commands:
-    format:
-      run: just format
-    lint:
-      run: just lint
+    fmt-check:
+      run: just fmt-check
+    lint-check:
+      run: just lint-check
     test:
-      run: cargo test
+      run: just test
