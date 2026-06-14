@@ -104,11 +104,14 @@ impl NeofetchRenderer {
 
         debug!("Detected distro: {}", distro);
 
-        let (ascii_art, ascii_width) = get_ascii_art(&distro);
+        let (ascii_art, ascii_width, palette) = get_ascii_art(&distro);
         let primary_color = get_distro_color(&distro);
         let filler = get_filler(ascii_width);
-        let get_art =
-            |idx: usize| -> &str { ascii_art.get(idx).copied().unwrap_or(filler.as_str()) };
+        // Expand `${cN}` markers at render time using the logo's palette.
+        let get_art = |idx: usize| -> String {
+            let raw = ascii_art.get(idx).copied().unwrap_or(filler.as_str());
+            crate::ascii::colors::expand(raw, &palette, false)
+        };
 
         let colors = resolve_colors(&self.config.colors, primary_color);
         let bold = self.config.bold;
@@ -139,7 +142,7 @@ impl NeofetchRenderer {
                 hostname = short.to_string();
             }
             title_len = username.chars().count() + hostname.chars().count() + 1;
-            Self::put(&mut w, primary_color, false, get_art(art_idx))?;
+            Self::put(&mut w, primary_color, false, &get_art(art_idx))?;
             queue!(w, Print("   "))?;
             Self::put(&mut w, colors.title, bold, &username)?;
             Self::put(&mut w, colors.at, bold, "@")?;
@@ -150,7 +153,7 @@ impl NeofetchRenderer {
 
         // Print underline
         if self.config.underline {
-            Self::put(&mut w, primary_color, false, get_art(art_idx))?;
+            Self::put(&mut w, primary_color, false, &get_art(art_idx))?;
             queue!(w, Print("   "))?;
             Self::put(
                 &mut w,
@@ -205,7 +208,7 @@ impl NeofetchRenderer {
                 for s in strings.iter() {
                     // Repeat the label on every line (e.g. one "GPU:" per GPU),
                     // matching neofetch rather than leaving orphaned values.
-                    put_line(&mut w, get_art(art_idx), &label, s)?;
+                    put_line(&mut w, &get_art(art_idx), &label, s)?;
                     art_idx += 1;
                 }
             }
@@ -215,7 +218,7 @@ impl NeofetchRenderer {
             // Phase 1: print all placeholder lines immediately (label + separator).
             for (i, (title, _)) in self.probe_list.iter().enumerate() {
                 let label = format!("{:width$}", title, width = max_title_len);
-                Self::put(&mut w, primary_color, false, get_art(probe_art_start + i))?;
+                Self::put(&mut w, primary_color, false, &get_art(probe_art_start + i))?;
                 queue!(w, Print("   "))?;
                 Self::put(&mut w, colors.subtitle, bold, &label)?;
                 Self::put(&mut w, colors.colon, bold, sep)?;
@@ -277,7 +280,7 @@ impl NeofetchRenderer {
                     };
                     let label = format!("{:width$}", title, width = max_title_len);
                     for s in strings.iter() {
-                        put_line(&mut w, get_art(ra_idx), &label, s)?;
+                        put_line(&mut w, &get_art(ra_idx), &label, s)?;
                         ra_idx += 1;
                     }
                 }
@@ -299,7 +302,7 @@ impl NeofetchRenderer {
             let (start, end) = (cb.range[0], cb.range[1]);
 
             // Spacer line between probes and color blocks
-            Self::put(&mut w, primary_color, false, get_art(art_idx))?;
+            Self::put(&mut w, primary_color, false, &get_art(art_idx))?;
             queue!(w, Print("\n"))?;
             art_idx += 1;
 
@@ -313,7 +316,7 @@ impl NeofetchRenderer {
                     continue;
                 }
                 for _ in 0..height {
-                    Self::put(&mut w, primary_color, false, get_art(art_idx))?;
+                    Self::put(&mut w, primary_color, false, &get_art(art_idx))?;
                     queue!(w, Print(&offset))?;
                     for c in &group {
                         queue!(
@@ -331,7 +334,12 @@ impl NeofetchRenderer {
 
         // Print remaining ASCII art lines
         for line in ascii_art.iter().skip(art_idx) {
-            Self::put(&mut w, primary_color, false, line)?;
+            Self::put(
+                &mut w,
+                primary_color,
+                false,
+                &crate::ascii::colors::expand(line, &palette, false),
+            )?;
             queue!(w, Print("\n"))?;
         }
 
