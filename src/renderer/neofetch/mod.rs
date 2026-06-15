@@ -167,12 +167,10 @@ impl NeofetchRenderer {
         // Print title (username@hostname)
         if self.config.title {
             let username = general_readout().username()?;
-            let mut hostname = general_readout().hostname()?;
-            if !self.config.title_fqdn
-                && let Some((short, _domain)) = hostname.split_once('.')
-            {
-                hostname = short.to_string();
-            }
+            // Use the hostname as-is, matching neofetch (`title_fqdn` off = plain
+            // `hostname`, which on macOS includes the `.local` suffix) and purr's
+            // own JSON renderer.
+            let hostname = general_readout().hostname()?;
             title_len = username.chars().count() + hostname.chars().count() + 1;
             Self::put(&mut w, primary_color, false, &get_art(art_idx))?;
             queue!(w, Print("   "))?;

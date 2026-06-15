@@ -166,7 +166,7 @@ fn distro_palette(name: &str) -> [u8; 6] {
         "fedora" | "fedora_silverblue" | "fedora-silverblue" => [12, 7, 12, 12, 12, 12],
         "debian" => [1, 7, 3, 3, 3, 3],
         "nixos" => [4, 6, 4, 4, 4, 4],
-        "macos" => [2, 3, 1, 5, 4, 4],
+        "macos" => [2, 3, 1, 1, 5, 4], // neofetch `set_colors 2 3 1 1 5 4`
         "windows" => [4, 6, 4, 4, 4, 4],
         "linux" => [7, 8, 3, 7, 7, 7],
 
