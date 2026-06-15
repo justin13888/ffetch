@@ -670,9 +670,22 @@ impl DistroOptions {
         };
         if self.os_arch {
             s.push(' ');
-            s.push_str(std::env::consts::ARCH);
+            s.push_str(os_arch_str());
         }
         s
+    }
+}
+
+/// Architecture string with neofetch's (`uname -m`) naming, which differs from
+/// Rust's target arch on macOS (`arm64`, not `aarch64`).
+fn os_arch_str() -> &'static str {
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    {
+        "arm64"
+    }
+    #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
+    {
+        std::env::consts::ARCH
     }
 }
 

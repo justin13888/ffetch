@@ -11,8 +11,10 @@ use tracing::{debug_span, instrument};
 use libmacchina::{
     BatteryReadout, GeneralReadout, KernelReadout, MemoryReadout, NetworkReadout, PackageReadout,
     ProductReadout,
-    traits::{BatteryState, ReadoutError, ShellFormat, ShellKind},
+    traits::{BatteryState, ReadoutError},
 };
+#[cfg(not(target_os = "macos"))]
+use libmacchina::traits::{ShellFormat, ShellKind};
 use serde::{Deserialize, Serialize};
 use sysinfo::{Disks, Users};
 use thiserror::Error;
@@ -122,6 +124,179 @@ fn run_command(cmd: &str, args: &[&str]) -> Result<String, ProbeError> {
     } else {
         Ok(value)
     }
+}
+
+// ── macOS subprocess wrappers (used by several probes) ───────────────────
+/// `sysctl -n <key>`.
+#[cfg(target_os = "macos")]
+fn sysctl(key: &str) -> Result<String, ProbeError> {
+    run_command("sysctl", &["-n", key])
+}
+
+/// `sw_vers <flag>`, e.g. `-productVersion` / `-buildVersion`.
+#[cfg(target_os = "macos")]
+fn sw_vers(flag: &str) -> Result<String, ProbeError> {
+    run_command("sw_vers", &[flag])
+}
+
+/// Read a global preference via `defaults read -g <key>`. Returns `None` when the
+/// key is unset (the command exits non-zero), mirroring neofetch's fallbacks.
+#[cfg(target_os = "macos")]
+fn defaults_read_global(key: &str) -> Option<String> {
+    run_command("defaults", &["read", "-g", key]).ok()
+}
+
+// ── Pure, unit-testable parsers (no platform calls) ──────────────────────
+/// Reduce libmacchina's resolution string to neofetch's logical resolution:
+/// "3456x2234@120fps (as 1728x1117)" -> "1728x1117"; a plain "1920x1080" is
+/// passed through; multiple (newline-separated) displays rejoin with ", ".
+#[cfg(any(target_os = "macos", test))]
+fn scaled_resolution(raw: &str) -> String {
+    raw.lines()
+        .map(|seg| {
+            let seg = seg.trim();
+            if let Some(start) = seg.find("(as ") {
+                let rest = &seg[start + 4..];
+                rest.split(')').next().unwrap_or(rest).trim().to_string()
+            } else {
+                seg.split('@').next().unwrap_or(seg).trim().to_string()
+            }
+        })
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// Map a macOS `AppleAccentColor` value to neofetch's colour name.
+#[cfg(any(target_os = "macos", test))]
+fn map_accent(value: Option<&str>) -> &'static str {
+    match value.map(str::trim) {
+        Some("-1") => "Graphite",
+        Some("0") => "Red",
+        Some("1") => "Orange",
+        Some("2") => "Yellow",
+        Some("3") => "Green",
+        Some("5") => "Purple",
+        Some("6") => "Pink",
+        _ => "Blue",
+    }
+}
+
+/// Map `$TERM_PROGRAM` to neofetch's terminal name (case preserved for the
+/// generic `.app` strip).
+#[cfg(any(target_os = "macos", test))]
+fn map_terminal(term_program: &str) -> String {
+    match term_program {
+        "iTerm.app" => "iTerm2".to_string(),
+        "Terminal.app" | "Apple_Terminal" => "Apple Terminal".to_string(),
+        "Hyper" => "HyperTerm".to_string(),
+        other => other.trim_end_matches(".app").to_string(),
+    }
+}
+
+/// Extract "Chipset Model:" values from `system_profiler SPDisplaysDataType`.
+#[cfg(any(target_os = "macos", test))]
+fn parse_chipset_models(output: &str) -> Vec<String> {
+    output
+        .lines()
+        .filter_map(|line| {
+            line.trim()
+                .strip_prefix("Chipset Model:")
+                .map(|v| v.trim().to_string())
+        })
+        .filter(|s| !s.is_empty())
+        .collect()
+}
+
+/// Parse `(wired, active, compressed)` page counts from `vm_stat` output.
+#[cfg(any(target_os = "macos", test))]
+fn parse_vm_stat_pages(output: &str) -> Option<(u64, u64, u64)> {
+    let get = |needle: &str| -> Option<u64> {
+        output.lines().find_map(|line| {
+            line.trim().strip_prefix(needle).and_then(|rest| {
+                let digits: String = rest.chars().filter(|c| c.is_ascii_digit()).collect();
+                digits.parse::<u64>().ok()
+            })
+        })
+    };
+    Some((
+        get("Pages wired down:")?,
+        get("Pages active:")?,
+        get("Pages occupied by compressor:")?,
+    ))
+}
+
+/// Parse the page size (bytes) from `vm_stat`'s header line
+/// ("...(page size of 16384 bytes)").
+#[cfg(any(target_os = "macos", test))]
+fn parse_vm_stat_page_size(output: &str) -> Option<u64> {
+    let line = output.lines().next()?;
+    let rest = &line[line.find("page size of ")? + "page size of ".len()..];
+    let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+    digits.parse::<u64>().ok()
+}
+
+/// Per-manager package count for `port installed` output, matching neofetch's
+/// `${#pkgs[@]}` (every non-empty line, including the header line).
+#[cfg(any(target_os = "macos", test))]
+fn parse_port_count(output: &str) -> usize {
+    output.lines().filter(|l| !l.trim().is_empty()).count()
+}
+
+/// Count Homebrew formulae as the number of (non-hidden) directories under the
+/// Cellar, matching neofetch's `dir "$(brew --cellar)"/*` (casks excluded).
+#[cfg(target_os = "macos")]
+fn count_cellar_formulae() -> usize {
+    let cellars: Vec<String> = match run_command("brew", &["--cellar"]) {
+        Ok(path) => vec![path],
+        Err(_) => vec![
+            "/opt/homebrew/Cellar".to_string(),
+            "/usr/local/Cellar".to_string(),
+        ],
+    };
+    cellars
+        .iter()
+        .filter_map(|p| std::fs::read_dir(p).ok())
+        .flat_map(|rd| rd.flatten())
+        .filter(|e| !e.file_name().to_string_lossy().starts_with('.'))
+        .count()
+}
+
+/// macOS package counts mirroring neofetch: MacPorts then Homebrew (Cellar),
+/// labelled "port"/"brew"; cargo and other language managers are not counted.
+#[cfg(target_os = "macos")]
+fn count_packages_macos() -> Vec<(String, usize)> {
+    let mut counts: Vec<(String, usize)> = Vec::new();
+    if let Ok(out) = run_command("port", &["installed"]) {
+        let n = parse_port_count(&out);
+        if n > 0 {
+            counts.push(("port".to_string(), n));
+        }
+    }
+    let brew = count_cellar_formulae();
+    if brew > 0 {
+        counts.push(("brew".to_string(), brew));
+    }
+    counts
+}
+
+/// GPU names for this platform: `system_profiler` chipset models on macOS,
+/// libmacchina's `gpus()` elsewhere.
+#[cfg(target_os = "macos")]
+fn gpus_list() -> Result<Vec<String>, ProbeError> {
+    let out = run_command("system_profiler", &["SPDisplaysDataType"])?;
+    let models = parse_chipset_models(&out);
+    if models.is_empty() {
+        Err(ProbeError::MetricsUnavailable)
+    } else {
+        Ok(models)
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn gpus_list() -> Result<Vec<String>, ProbeError> {
+    use libmacchina::traits::GeneralReadout as _;
+    Ok(general_readout().gpus()?)
 }
 
 /// Parse a key from an INI-style config file (searches all sections).
@@ -330,9 +505,13 @@ impl From<ProbeType> for ProbeResultFunction {
         use libmacchina::traits::BatteryReadout as _;
         use libmacchina::traits::GeneralReadout as _;
         use libmacchina::traits::KernelReadout as _;
+        #[cfg(not(target_os = "macos"))]
         use libmacchina::traits::MemoryReadout as _;
+        #[cfg(not(target_os = "macos"))]
         use libmacchina::traits::NetworkReadout as _;
+        #[cfg(not(target_os = "macos"))]
         use libmacchina::traits::PackageReadout as _;
+        #[cfg(not(target_os = "macos"))]
         use libmacchina::traits::ProductReadout as _;
 
         match probe_type {
@@ -343,13 +522,27 @@ impl From<ProbeType> for ProbeResultFunction {
                 )))
             }),
             ProbeType::OS => Box::new(|| {
+                // macOS: build the OS string the way neofetch does — codename
+                // ("macOS" for modern releases) + `sw_vers` product version +
+                // build. The architecture is appended later by `DistroOptions`.
+                #[cfg(target_os = "macos")]
+                {
+                    let version = sw_vers("-productVersion")?;
+                    let build = sw_vers("-buildVersion")?;
+                    Ok(ProbeResultValue::Single(ProbeValue::OS(format!(
+                        "macOS {version} {build}"
+                    ))))
+                }
                 // libmacchina's `os_name` is unimplemented on Linux, so fall back to the
                 // distribution pretty-name (e.g. "Fedora Linux 44 (Silverblue)"). The
                 // architecture and shorthand are applied later by `DistroOptions`.
-                let name = general_readout()
-                    .os_name()
-                    .or_else(|_| general_readout().distribution())?;
-                Ok(ProbeResultValue::Single(ProbeValue::OS(name)))
+                #[cfg(not(target_os = "macos"))]
+                {
+                    let name = general_readout()
+                        .os_name()
+                        .or_else(|_| general_readout().distribution())?;
+                    Ok(ProbeResultValue::Single(ProbeValue::OS(name)))
+                }
             }),
             ProbeType::Distro => Box::new(|| {
                 Ok(ProbeResultValue::Single(ProbeValue::Distro(
@@ -357,10 +550,22 @@ impl From<ProbeType> for ProbeResultFunction {
                 )))
             }),
             ProbeType::Model => Box::new(|| {
-                Ok(ProbeResultValue::Single(ProbeValue::Model(
-                    product_readout().vendor()?,
-                    product_readout().product()?,
-                )))
+                // macOS reports just the model identifier (`sysctl hw.model`,
+                // e.g. "Mac15,7"), with no vendor, matching neofetch.
+                #[cfg(target_os = "macos")]
+                {
+                    Ok(ProbeResultValue::Single(ProbeValue::Model(
+                        String::new(),
+                        sysctl("hw.model")?,
+                    )))
+                }
+                #[cfg(not(target_os = "macos"))]
+                {
+                    Ok(ProbeResultValue::Single(ProbeValue::Model(
+                        product_readout().vendor()?,
+                        product_readout().product()?,
+                    )))
+                }
             }),
             ProbeType::Kernel => Box::new(|| {
                 Ok(ProbeResultValue::Single(ProbeValue::Kernel(
@@ -375,15 +580,28 @@ impl From<ProbeType> for ProbeResultFunction {
             // TODO: Test libmacchina packages() function for package manager hanging issues
             ProbeType::Packages => Box::new(|| {
                 let _span = debug_span!("pkg_count").entered();
-                Ok(ProbeResultValue::Single(ProbeValue::Packages(
-                    package_readout()
-                        .count_pkgs()
-                        .into_iter()
-                        .map(|(name, count)| (name.to_string(), count))
-                        .collect::<Vec<_>>(),
-                )))
+                // macOS: count MacPorts + Homebrew (Cellar) like neofetch;
+                // libmacchina otherwise includes casks/cargo and mislabels brew.
+                #[cfg(target_os = "macos")]
+                let counts = count_packages_macos();
+                #[cfg(not(target_os = "macos"))]
+                let counts = package_readout()
+                    .count_pkgs()
+                    .into_iter()
+                    .map(|(name, count)| (name.to_string(), count))
+                    .collect::<Vec<_>>();
+                Ok(ProbeResultValue::Single(ProbeValue::Packages(counts)))
             }),
             ProbeType::Shell => Box::new(|| {
+                // macOS: libmacchina's `shell()` errors, so derive the name from
+                // `$SHELL` like neofetch (`${SHELL##*/}`).
+                #[cfg(target_os = "macos")]
+                let name = {
+                    let shell = std::env::var("SHELL")
+                        .map_err(|_| ProbeError::MetricsUnavailable)?;
+                    shell.rsplit('/').next().unwrap_or(&shell).to_string()
+                };
+                #[cfg(not(target_os = "macos"))]
                 let name = general_readout()
                     .shell(ShellFormat::Relative, ShellKind::Current)?
                     .trim()
@@ -400,9 +618,14 @@ impl From<ProbeType> for ProbeResultFunction {
                 Ok(ProbeResultValue::Single(ProbeValue::Editor(editor)))
             }),
             ProbeType::Resolution => Box::new(|| {
-                Ok(ProbeResultValue::Single(ProbeValue::Resolution(
-                    general_readout().resolution()?,
-                )))
+                let raw = general_readout().resolution()?;
+                // macOS: neofetch shows only the logical/scaled resolution
+                // (e.g. "1728x1117"), no native-mode or refresh-rate suffix.
+                #[cfg(target_os = "macos")]
+                let value = scaled_resolution(&raw);
+                #[cfg(not(target_os = "macos"))]
+                let value = raw;
+                Ok(ProbeResultValue::Single(ProbeValue::Resolution(value)))
             }),
             ProbeType::DE => Box::new(|| {
                 let name = general_readout().desktop_environment()?;
@@ -415,18 +638,35 @@ impl From<ProbeType> for ProbeResultFunction {
                 )))
             }),
             ProbeType::WMTheme => Box::new(|| {
+                // macOS: "<accent> (<interface style>)", e.g. "Blue (Dark)", from
+                // the global AppleAccentColor / AppleInterfaceStyle preferences.
+                #[cfg(target_os = "macos")]
+                {
+                    let style = defaults_read_global("AppleInterfaceStyle")
+                        .unwrap_or_else(|| "Light".to_string());
+                    let accent = map_accent(defaults_read_global("AppleAccentColor").as_deref());
+                    Ok(ProbeResultValue::Single(ProbeValue::WMTheme(format!(
+                        "{accent} ({style})"
+                    ))))
+                }
                 // GNOME (Fedora/Ubuntu default): query WM preferences theme via gsettings
                 // Fallback: parse GTK3 settings.ini
-                let theme =
-                    gsettings_get("org.gnome.desktop.wm.preferences", "theme").or_else(|_| {
-                        let home =
-                            std::env::var("HOME").map_err(|_| ProbeError::MetricsUnavailable)?;
-                        parse_ini_key(
-                            std::path::Path::new(&format!("{}/.config/gtk-3.0/settings.ini", home)),
-                            "gtk-theme-name",
-                        )
-                    })?;
-                Ok(ProbeResultValue::Single(ProbeValue::WMTheme(theme)))
+                #[cfg(not(target_os = "macos"))]
+                {
+                    let theme = gsettings_get("org.gnome.desktop.wm.preferences", "theme")
+                        .or_else(|_| {
+                            let home = std::env::var("HOME")
+                                .map_err(|_| ProbeError::MetricsUnavailable)?;
+                            parse_ini_key(
+                                std::path::Path::new(&format!(
+                                    "{}/.config/gtk-3.0/settings.ini",
+                                    home
+                                )),
+                                "gtk-theme-name",
+                            )
+                        })?;
+                    Ok(ProbeResultValue::Single(ProbeValue::WMTheme(theme)))
+                }
             }),
             ProbeType::Theme => Box::new(|| {
                 // GNOME: query GTK theme via gsettings
@@ -458,9 +698,26 @@ impl From<ProbeType> for ProbeResultFunction {
             }),
             ProbeType::Cursor => Box::new(|| Err(ProbeError::Unimplemented)),
             ProbeType::Terminal => Box::new(|| {
-                Ok(ProbeResultValue::Single(ProbeValue::Terminal(
-                    general_readout().terminal()?.trim().to_string(),
-                )))
+                // macOS: neofetch derives the terminal from `$TERM_PROGRAM`
+                // (no version). Fall back to libmacchina, stripping its version
+                // suffix, when the variable is unset.
+                #[cfg(target_os = "macos")]
+                {
+                    let term = match std::env::var("TERM_PROGRAM") {
+                        Ok(tp) if !tp.is_empty() => map_terminal(&tp),
+                        _ => {
+                            let t = general_readout().terminal()?.trim().to_string();
+                            t.split(" (Version").next().unwrap_or(&t).trim().to_string()
+                        }
+                    };
+                    Ok(ProbeResultValue::Single(ProbeValue::Terminal(term)))
+                }
+                #[cfg(not(target_os = "macos"))]
+                {
+                    Ok(ProbeResultValue::Single(ProbeValue::Terminal(
+                        general_readout().terminal()?.trim().to_string(),
+                    )))
+                }
             }),
             ProbeType::TerminalFont => Box::new(|| {
                 let font = detect_terminal_font()?;
@@ -473,10 +730,35 @@ impl From<ProbeType> for ProbeResultFunction {
             }),
             ProbeType::GPU => gpu_probe_fn(GpuOptions::default()),
             ProbeType::Memory => Box::new(|| {
-                Ok(ProbeResultValue::Single(ProbeValue::Memory(
-                    memory_readout().used()?,
-                    memory_readout().total()?,
-                )))
+                // macOS: used = (wired + active + compressed) pages. neofetch uses
+                // the same components but hardcodes a 4 KiB page size, which
+                // undercounts ~4x on Apple Silicon (16 KiB pages); purr uses the
+                // real page size and reports the correct figure (close to Activity
+                // Monitor's "Memory Used").
+                #[cfg(target_os = "macos")]
+                {
+                    let total_kib = sysctl("hw.memsize")?
+                        .parse::<u64>()
+                        .map_err(|_| ProbeError::MetricsUnavailable)?
+                        / 1024;
+                    let vm = run_command("vm_stat", &[])?;
+                    let (wired, active, compressed) =
+                        parse_vm_stat_pages(&vm).ok_or(ProbeError::MetricsUnavailable)?;
+                    let page_bytes = parse_vm_stat_page_size(&vm)
+                        .or_else(|| sysctl("hw.pagesize").ok()?.parse::<u64>().ok())
+                        .unwrap_or(4096);
+                    let used_kib = (wired + active + compressed) * page_bytes / 1024;
+                    Ok(ProbeResultValue::Single(ProbeValue::Memory(
+                        used_kib, total_kib,
+                    )))
+                }
+                #[cfg(not(target_os = "macos"))]
+                {
+                    Ok(ProbeResultValue::Single(ProbeValue::Memory(
+                        memory_readout().used()?,
+                        memory_readout().total()?,
+                    )))
+                }
             }),
             ProbeType::Network => Box::new(|| Err(ProbeError::Unimplemented)),
             ProbeType::Bluetooth => Box::new(|| Err(ProbeError::Unimplemented)),
@@ -521,9 +803,19 @@ impl From<ProbeType> for ProbeResultFunction {
             }),
             ProbeType::Song => song_probe_fn(SongOptions::default()),
             ProbeType::LocalIP => Box::new(|| {
-                Ok(ProbeResultValue::Single(ProbeValue::LocalIP(
-                    network_readout().logical_address(None)?,
-                )))
+                // macOS: neofetch reads `ipconfig getifaddr en0` (then en1).
+                #[cfg(target_os = "macos")]
+                {
+                    let ip = run_command("ipconfig", &["getifaddr", "en0"])
+                        .or_else(|_| run_command("ipconfig", &["getifaddr", "en1"]))?;
+                    Ok(ProbeResultValue::Single(ProbeValue::LocalIP(ip)))
+                }
+                #[cfg(not(target_os = "macos"))]
+                {
+                    Ok(ProbeResultValue::Single(ProbeValue::LocalIP(
+                        network_readout().logical_address(None)?,
+                    )))
+                }
             }),
             ProbeType::PublicIP => Box::new(|| Err(ProbeError::Unimplemented)),
             ProbeType::Users => Box::new(|| {
@@ -707,7 +999,14 @@ impl ProbeValue {
             ProbeValue::Host(username, hostname) => format!("{}@{}", username, hostname),
             ProbeValue::OS(os) => DistroOptions::default().format(os),
             ProbeValue::Distro(distro) => distro.to_string(),
-            ProbeValue::Model(vendor, product) => format!("{} {}", vendor, product),
+            ProbeValue::Model(vendor, product) => {
+                // macOS supplies no vendor (just the model identifier).
+                if vendor.is_empty() {
+                    product.to_string()
+                } else {
+                    format!("{} {}", vendor, product)
+                }
+            }
             ProbeValue::Kernel(kernel) => KernelOptions::default().format(kernel),
             ProbeValue::Uptime(uptime) => UptimeOptions::default().format(*uptime),
             ProbeValue::Packages(counts) => PackagesOptions::default().format(counts),
@@ -773,7 +1072,16 @@ pub fn format_cpu(model: &str, opts: &CpuOptions) -> String {
         CoresMode::Off => None,
     };
     if let Some(n) = cores {
-        cpu.push_str(&format!(" ({})", n));
+        if cfg!(target_os = "macos") {
+            // neofetch inserts the core count next to the clock speed
+            // (`${cpu/@/(${cores}) @}`). Apple Silicon brand strings have no
+            // "@ speed", so no core count is shown there.
+            if cpu.contains('@') {
+                cpu = cpu.replacen('@', &format!("({}) @", n), 1);
+            }
+        } else {
+            cpu.push_str(&format!(" ({})", n));
+        }
     }
 
     if opts.speed
@@ -913,10 +1221,8 @@ pub fn disk_probe_fn(opts: DiskOptions) -> ProbeResultFunction {
 /// Build the GPU probe, filtering by `opts.gpu_type` (all/dedicated/integrated).
 pub fn gpu_probe_fn(opts: GpuOptions) -> ProbeResultFunction {
     Box::new(move || {
-        use libmacchina::traits::GeneralReadout as _;
         let _span = debug_span!("gpu_readout").entered();
-        let entries: Vec<ProbeValue> = general_readout()
-            .gpus()?
+        let entries: Vec<ProbeValue> = gpus_list()?
             .into_iter()
             .filter(|name| match opts.gpu_type {
                 GpuType::All => true,
@@ -969,7 +1275,14 @@ fn gpu_driver() -> Option<String> {
     (!drivers.is_empty()).then(|| drivers.join(", "))
 }
 
-#[cfg(not(target_os = "linux"))]
+/// macOS has a single, unnamed system graphics driver; neofetch reports a
+/// constant string here.
+#[cfg(target_os = "macos")]
+fn gpu_driver() -> Option<String> {
+    Some("macOS Default Graphics Driver".to_string())
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
 fn gpu_driver() -> Option<String> {
     None
 }
@@ -1145,5 +1458,73 @@ mod tests {
     #[test]
     fn leaves_clean_names_untouched() {
         assert_eq!(clean_cpu_model("Apple M1"), "Apple M1");
+    }
+
+    use super::{
+        map_accent, map_terminal, parse_chipset_models, parse_port_count, parse_vm_stat_page_size,
+        parse_vm_stat_pages, scaled_resolution,
+    };
+
+    #[test]
+    fn resolution_reduces_to_scaled() {
+        assert_eq!(
+            scaled_resolution("3456x2234@120fps (as 1728x1117)"),
+            "1728x1117"
+        );
+    }
+
+    #[test]
+    fn resolution_plain_passthrough_and_at_strip() {
+        assert_eq!(scaled_resolution("1920x1080"), "1920x1080");
+        assert_eq!(scaled_resolution("1920x1080@60fps"), "1920x1080");
+    }
+
+    #[test]
+    fn resolution_joins_multiple_displays() {
+        assert_eq!(
+            scaled_resolution("3456x2234@120fps (as 1728x1117)\n2560x1440@60fps"),
+            "1728x1117, 2560x1440"
+        );
+    }
+
+    #[test]
+    fn accent_maps_to_neofetch_names() {
+        assert_eq!(map_accent(None), "Blue"); // AppleAccentColor unset
+        assert_eq!(map_accent(Some("-1")), "Graphite");
+        assert_eq!(map_accent(Some("3")), "Green");
+        assert_eq!(map_accent(Some("4")), "Blue"); // 4 (blue) falls through
+    }
+
+    #[test]
+    fn terminal_maps_known_and_strips_app() {
+        assert_eq!(map_terminal("iTerm.app"), "iTerm2");
+        assert_eq!(map_terminal("Apple_Terminal"), "Apple Terminal");
+        assert_eq!(map_terminal("Hyper"), "HyperTerm");
+        assert_eq!(map_terminal("ghostty"), "ghostty");
+        assert_eq!(map_terminal("WezTerm.app"), "WezTerm"); // case preserved
+    }
+
+    #[test]
+    fn parses_chipset_models() {
+        let sp = "      Bus: Built-In\n          Resolution: 3456 x 2234 Retina\n          Chipset Model: Apple M3 Pro\n";
+        assert_eq!(parse_chipset_models(sp), vec!["Apple M3 Pro".to_string()]);
+    }
+
+    #[test]
+    fn parses_vm_stat_pages_and_size() {
+        let vm = "Mach Virtual Memory Statistics: (page size of 16384 bytes)\n\
+                  Pages free:                               12345.\n\
+                  Pages active:                            658691.\n\
+                  Pages wired down:                        203437.\n\
+                  Pages occupied by compressor:            762997.\n";
+        assert_eq!(parse_vm_stat_pages(vm), Some((203437, 658691, 762997)));
+        assert_eq!(parse_vm_stat_page_size(vm), Some(16384));
+    }
+
+    #[test]
+    fn port_count_includes_every_line() {
+        // neofetch's per-manager count is the array length (header included).
+        let out = "The following ports are currently installed:\n  pkg-a @1\n  pkg-b @2\n";
+        assert_eq!(parse_port_count(out), 3);
     }
 }
