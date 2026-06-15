@@ -9,7 +9,9 @@ Perfect for sharing your [rice](https://www.reddit.com/r/unixporn/) or showing s
 
 ## Why purr?
 
-- **Fast**: probes run in parallel on native Rust; a typical run completes in milliseconds
+[neofetch](https://github.com/dylanaraps/neofetch) is archived and no longer maintained. If its look is part of your terminal-startup ritual — the thing you see every time a shell opens — purr keeps exactly that: the same fields, the same `${c1}`..`${c6}` ASCII, the same vibe. The difference is it's **instant** instead of the visible pause neofetch takes to start. It's a drop-in successor that's [actively maintained and packaged for most platforms](#installation) (with more package managers on the way).
+
+- **Fast**: probes run in parallel on native Rust; a typical run finishes in ~20 ms — roughly **91× faster** than neofetch's ~2 s
 - **Cross-platform**: Linux, macOS, and Windows
 - **neofetch-compatible**: matches neofetch's commonly-used info fields, styling, configuration, and `${c1}`..`${c6}` ASCII format. The [parity matrix](docs/neofetch-parity.md) records exactly what's covered and what's intentionally deferred
 - **Highly customizable**: TOML config plus CLI flags for separators, colours, per-field options, color blocks, ASCII overrides, JSON output, and a Kitty image backend
