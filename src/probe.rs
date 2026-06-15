@@ -17,6 +17,12 @@ use serde::{Deserialize, Serialize};
 use sysinfo::{Disks, Users};
 use thiserror::Error;
 
+use crate::config::{
+    CoresMode, CpuOptions, DeOptions, DiskOptions, DistroOptions, GpuOptions, GpuType,
+    KernelOptions, MemoryOptions, PackagesOptions, ShellOptions, SongOptions, SpeedType,
+    UptimeOptions,
+};
+
 pub fn battery_readout() -> &'static BatteryReadout {
     use libmacchina::traits::BatteryReadout as _;
     static COMPUTATION: OnceLock<BatteryReadout> = OnceLock::new();
@@ -220,13 +226,15 @@ pub enum ProbeValue {
     /// E.g. [("dpkg", 123)]
     Packages(Vec<(String, usize)>),
     /// E.g. "zsh 5.8.1"
-    Shell(String),
+    /// Shell name + optional version, e.g. ("zsh", Some("5.9")).
+    Shell(String, Option<String>),
     /// E.g. "vim 8.2" // TODO: CHECK THIS example
     Editor(String),
     /// E.g. "1920x1080"
     Resolution(String),
     /// E.g. "GNOME", "hyprland", "Fluent" (Windows)
-    DE(String),
+    /// Desktop environment name + optional version, e.g. ("GNOME", Some("46.0")).
+    DE(String, Option<String>),
     /// E.g. "Mutter"
     WM(String),
     /// E.g. "Adwaita" // TODO: CHECK
@@ -254,8 +262,8 @@ pub enum ProbeValue {
     /// E.g. 12
     CPUUsage(usize),
     /// Disk usage (in bytes)
-    /// (mountpoint, used, total)
-    Disk(PathBuf, u64, u64),
+    /// (mountpoint, device name, used, total)
+    Disk(PathBuf, String, u64, u64),
     /// Battery percentage
     /// E.g. 86
     Battery(u8), // TODO: CHECK
@@ -336,16 +344,12 @@ impl From<ProbeType> for ProbeResultFunction {
             }),
             ProbeType::OS => Box::new(|| {
                 // libmacchina's `os_name` is unimplemented on Linux, so fall back to the
-                // distribution pretty-name (e.g. "Fedora Linux 44 (Silverblue)"). Append
-                // the machine architecture, matching neofetch's default `os_arch=on`.
+                // distribution pretty-name (e.g. "Fedora Linux 44 (Silverblue)"). The
+                // architecture and shorthand are applied later by `DistroOptions`.
                 let name = general_readout()
                     .os_name()
                     .or_else(|_| general_readout().distribution())?;
-                Ok(ProbeResultValue::Single(ProbeValue::OS(format!(
-                    "{} {}",
-                    name,
-                    std::env::consts::ARCH
-                ))))
+                Ok(ProbeResultValue::Single(ProbeValue::OS(name)))
             }),
             ProbeType::Distro => Box::new(|| {
                 Ok(ProbeResultValue::Single(ProbeValue::Distro(
@@ -380,12 +384,14 @@ impl From<ProbeType> for ProbeResultFunction {
                 )))
             }),
             ProbeType::Shell => Box::new(|| {
-                Ok(ProbeResultValue::Single(ProbeValue::Shell(
-                    general_readout()
-                        .shell(ShellFormat::Relative, ShellKind::Current)?
-                        .trim()
-                        .to_string(),
-                )))
+                let name = general_readout()
+                    .shell(ShellFormat::Relative, ShellKind::Current)?
+                    .trim()
+                    .to_string();
+                // Gather the version here (in the parallel probe thread) so the
+                // renderer never shells out on its hot path.
+                let version = shell_version(&name);
+                Ok(ProbeResultValue::Single(ProbeValue::Shell(name, version)))
             }),
             ProbeType::Editor => Box::new(|| {
                 let editor = std::env::var("VISUAL")
@@ -399,9 +405,9 @@ impl From<ProbeType> for ProbeResultFunction {
                 )))
             }),
             ProbeType::DE => Box::new(|| {
-                Ok(ProbeResultValue::Single(ProbeValue::DE(
-                    general_readout().desktop_environment()?,
-                )))
+                let name = general_readout().desktop_environment()?;
+                let version = de_version(&name);
+                Ok(ProbeResultValue::Single(ProbeValue::DE(name, version)))
             }),
             ProbeType::WM => Box::new(|| {
                 Ok(ProbeResultValue::Single(ProbeValue::WM(
@@ -465,16 +471,7 @@ impl From<ProbeType> for ProbeResultFunction {
                     general_readout().cpu_model_name()?,
                 )))
             }),
-            ProbeType::GPU => Box::new(|| {
-                let _span = debug_span!("gpu_readout").entered();
-                Ok(ProbeResultValue::Multiple(
-                    general_readout()
-                        .gpus()?
-                        .into_iter()
-                        .map(ProbeValue::GPU)
-                        .collect::<Vec<_>>(),
-                ))
-            }),
+            ProbeType::GPU => gpu_probe_fn(GpuOptions::default()),
             ProbeType::Memory => Box::new(|| {
                 Ok(ProbeResultValue::Single(ProbeValue::Memory(
                     memory_readout().used()?,
@@ -484,36 +481,17 @@ impl From<ProbeType> for ProbeResultFunction {
             ProbeType::Network => Box::new(|| Err(ProbeError::Unimplemented)),
             ProbeType::Bluetooth => Box::new(|| Err(ProbeError::Unimplemented)),
             ProbeType::BIOS => Box::new(|| Err(ProbeError::Unimplemented)),
-            ProbeType::GPUDriver => Box::new(|| Err(ProbeError::Unimplemented)),
+            ProbeType::GPUDriver => Box::new(|| {
+                let driver = gpu_driver().ok_or(ProbeError::MetricsUnavailable)?;
+                Ok(ProbeResultValue::Single(ProbeValue::GPUDriver(driver)))
+            }),
             ProbeType::CPUUsage => Box::new(|| {
                 let _span = debug_span!("cpu_usage_poll").entered();
                 Ok(ProbeResultValue::Single(ProbeValue::CPUUsage(
                     general_readout().cpu_usage()?,
                 )))
             }),
-            ProbeType::Disk => Box::new(|| {
-                // Note: libmacchina implementation replaced because missing functionality
-                // let disk_readout = general_readout().disk_space()?;
-                // Ok(ProbeResultValue::Single(ProbeValue::Disk(
-                //     disk_readout.0,
-                //     disk_readout.1,
-                // )))
-
-                let _span = debug_span!("disk_scan").entered();
-                let disks = Disks::new_with_refreshed_list();
-                Ok(ProbeResultValue::Multiple(
-                    disks
-                        .iter()
-                        .map(|disk| {
-                            ProbeValue::Disk(
-                                disk.mount_point().to_path_buf(),
-                                disk.total_space().saturating_sub(disk.available_space()),
-                                disk.total_space(),
-                            )
-                        })
-                        .collect::<Vec<_>>(),
-                ))
-            }),
+            ProbeType::Disk => disk_probe_fn(DiskOptions::default()),
             ProbeType::Battery => Box::new(|| {
                 Ok(ProbeResultValue::Single(ProbeValue::Battery(
                     battery_readout().percentage()?,
@@ -528,8 +506,20 @@ impl From<ProbeType> for ProbeResultFunction {
                     },
                 )))
             }),
-            ProbeType::Font => Box::new(|| Err(ProbeError::Unimplemented)),
-            ProbeType::Song => Box::new(|| Err(ProbeError::Unimplemented)),
+            ProbeType::Font => Box::new(|| {
+                // Mirror Theme/Icons: GNOME interface font, then GTK3 settings.ini.
+                let font =
+                    gsettings_get("org.gnome.desktop.interface", "font-name").or_else(|_| {
+                        let home =
+                            std::env::var("HOME").map_err(|_| ProbeError::MetricsUnavailable)?;
+                        parse_ini_key(
+                            std::path::Path::new(&format!("{}/.config/gtk-3.0/settings.ini", home)),
+                            "gtk-font-name",
+                        )
+                    })?;
+                Ok(ProbeResultValue::Single(ProbeValue::Font(font)))
+            }),
+            ProbeType::Song => song_probe_fn(SongOptions::default()),
             ProbeType::LocalIP => Box::new(|| {
                 Ok(ProbeResultValue::Single(ProbeValue::LocalIP(
                     network_readout().logical_address(None)?,
@@ -638,6 +628,53 @@ pub enum ProbeType {
     Rust,
 }
 
+impl ProbeType {
+    /// Stable machine-readable key for this metric (used by JSON output).
+    pub fn id(&self) -> &'static str {
+        match self {
+            ProbeType::Host => "host",
+            ProbeType::OS => "os",
+            ProbeType::Model => "model",
+            ProbeType::Kernel => "kernel",
+            ProbeType::Distro => "distro",
+            ProbeType::Uptime => "uptime",
+            ProbeType::Packages => "packages",
+            ProbeType::Shell => "shell",
+            ProbeType::Editor => "editor",
+            ProbeType::Resolution => "resolution",
+            ProbeType::DE => "de",
+            ProbeType::WM => "wm",
+            ProbeType::WMTheme => "wm_theme",
+            ProbeType::Theme => "theme",
+            ProbeType::Icons => "icons",
+            ProbeType::Cursor => "cursor",
+            ProbeType::Terminal => "terminal",
+            ProbeType::TerminalFont => "terminal_font",
+            ProbeType::CPU => "cpu",
+            ProbeType::GPU => "gpu",
+            ProbeType::Memory => "memory",
+            ProbeType::Network => "network",
+            ProbeType::Bluetooth => "bluetooth",
+            ProbeType::BIOS => "bios",
+            ProbeType::GPUDriver => "gpu_driver",
+            ProbeType::CPUUsage => "cpu_usage",
+            ProbeType::Disk => "disk",
+            ProbeType::Battery => "battery",
+            ProbeType::PowerAdapter => "power_adapter",
+            ProbeType::Font => "font",
+            ProbeType::Song => "song",
+            ProbeType::LocalIP => "local_ip",
+            ProbeType::PublicIP => "public_ip",
+            ProbeType::Users => "users",
+            ProbeType::Locale => "locale",
+            ProbeType::Java => "java",
+            ProbeType::Python => "python",
+            ProbeType::Node => "node",
+            ProbeType::Rust => "rust",
+        }
+    }
+}
+
 pub enum ProbeResultValue {
     Single(ProbeValue),
     Multiple(Vec<ProbeValue>),
@@ -658,3 +695,455 @@ impl From<Vec<ProbeValue>> for ProbeResultValue {
 pub type ProbeResult = Result<ProbeResultValue, ProbeError>;
 pub type ProbeResultFunction = Box<dyn Fn() -> ProbeResult + Send + Sync>;
 pub type ProbeList = Vec<(String, ProbeResultFunction)>;
+
+impl ProbeValue {
+    /// Render this probe value to its default display string (option-free).
+    ///
+    /// This is the baseline rendering shared by every renderer. Option-aware
+    /// formatting (memory units, uptime shorthand, …) layers on top of this in
+    /// the config layer; this remains the fallback and the machine-readable form.
+    pub fn format(&self) -> String {
+        match self {
+            ProbeValue::Host(username, hostname) => format!("{}@{}", username, hostname),
+            ProbeValue::OS(os) => DistroOptions::default().format(os),
+            ProbeValue::Distro(distro) => distro.to_string(),
+            ProbeValue::Model(vendor, product) => format!("{} {}", vendor, product),
+            ProbeValue::Kernel(kernel) => KernelOptions::default().format(kernel),
+            ProbeValue::Uptime(uptime) => UptimeOptions::default().format(*uptime),
+            ProbeValue::Packages(counts) => PackagesOptions::default().format(counts),
+            ProbeValue::Shell(name, version) => {
+                ShellOptions::default().format(name, version.as_deref())
+            }
+            ProbeValue::Editor(editor) => editor.to_string(),
+            ProbeValue::Resolution(resolution) => resolution.to_string(),
+            ProbeValue::DE(name, version) => DeOptions::default().format(name, version.as_deref()),
+            ProbeValue::WM(wm) => wm.to_string(),
+            ProbeValue::WMTheme(wm_theme) => wm_theme.to_string(),
+            ProbeValue::Theme(theme) => theme.to_string(),
+            ProbeValue::Icons(icons) => icons.to_string(),
+            ProbeValue::Cursor(cursor) => cursor.to_string(),
+            ProbeValue::Terminal(terminal) => terminal.to_string(),
+            ProbeValue::TerminalFont(terminal_font) => terminal_font.to_string(),
+            ProbeValue::CPU(cpu) => format_cpu(cpu, &CpuOptions::default()),
+            ProbeValue::GPU(gpu) => GpuOptions::default().format(gpu),
+            ProbeValue::Memory(used, total) => MemoryOptions::default().format(*used, *total),
+            ProbeValue::Network(network) => network.to_string(),
+            ProbeValue::Bluetooth(bluetooth) => bluetooth.to_string(),
+            ProbeValue::BIOS(bios) => bios.to_string(),
+            ProbeValue::GPUDriver(gpu_driver) => gpu_driver.to_string(),
+            ProbeValue::CPUUsage(cpu_usage) => format!("{}%", cpu_usage),
+            ProbeValue::Disk(mount, name, used, total) => {
+                DiskOptions::default().format(mount, name, *used, *total)
+            }
+            ProbeValue::Battery(battery) => battery.to_string(),
+            ProbeValue::PowerAdapter(power_adapter) => power_adapter.to_string(),
+            ProbeValue::Font(font) => font.to_string(),
+            ProbeValue::Song(song) => song.to_string(),
+            ProbeValue::LocalIP(local_ip) => local_ip.to_string(),
+            ProbeValue::PublicIP(public_ip) => public_ip.to_string(),
+            ProbeValue::Users(users) => users.join(", "),
+            ProbeValue::Locale(locale) => locale.to_string(),
+            ProbeValue::Java(java) => java.to_string(),
+            ProbeValue::Node(node) => node.to_string(),
+            ProbeValue::Python(python) => python.to_string(),
+            ProbeValue::Rust(rust) => rust.to_string(),
+        }
+    }
+}
+
+/// Format a raw CPU model into neofetch's CPU line, honoring [`CpuOptions`]:
+/// cruft stripped, optional brand, core count, and max clock, e.g.
+/// "AMD Ryzen 7 7800X3D (16) @ 5.053GHz".
+pub fn format_cpu(model: &str, opts: &CpuOptions) -> String {
+    use libmacchina::traits::GeneralReadout as _;
+
+    let mut cpu = clean_cpu_model(model);
+
+    // `cpu_brand = off`: drop the leading brand token (e.g. "AMD", "Intel"),
+    // matching neofetch.
+    if !opts.brand
+        && let Some((_brand, rest)) = cpu.split_once(' ')
+    {
+        cpu = rest.to_string();
+    }
+
+    let cores = match opts.cores {
+        CoresMode::Logical => general_readout().cpu_cores().ok(),
+        CoresMode::Physical => general_readout().cpu_physical_cores().ok(),
+        CoresMode::Off => None,
+    };
+    if let Some(n) = cores {
+        cpu.push_str(&format!(" ({})", n));
+    }
+
+    if opts.speed
+        && let Some(ghz) = cpu_max_ghz(opts.speed_type, opts.speed_shorthand)
+    {
+        cpu.push_str(&format!(" @ {}GHz", ghz));
+    }
+
+    cpu
+}
+
+/// Strip the marketing cruft neofetch removes from CPU model strings
+/// (`(R)`, `(TM)`, `CPU`, `Processor`, `N-Core`, …) and collapse whitespace.
+fn clean_cpu_model(model: &str) -> String {
+    let mut s = model.to_string();
+    for pat in ["(R)", "(r)", "(TM)", "(tm)", "CPU", "Processor"] {
+        s = s.replace(pat, " ");
+    }
+    s.split_whitespace()
+        .filter(|tok| {
+            // Drop "N-Core" tokens (e.g. "8-Core").
+            let core = tok.to_ascii_lowercase();
+            !(core.ends_with("-core")
+                && core
+                    .trim_end_matches("-core")
+                    .chars()
+                    .all(|c| c.is_ascii_digit()))
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Read the CPU's frequency from sysfs and render it as GHz, matching neofetch.
+///
+/// `speed_type` selects which cpufreq file to read first; the others are tried
+/// as fallbacks (some are absent on VMs / certain governors). `shorthand`
+/// rounds to a single decimal (e.g. "5.1") instead of the full "5.053".
+/// Returns `None` when sysfs is unavailable.
+fn cpu_max_ghz(speed_type: SpeedType, shorthand: bool) -> Option<String> {
+    let base = "/sys/devices/system/cpu/cpu0/cpufreq";
+    let primary = match speed_type {
+        SpeedType::BiosLimit => "bios_limit",
+        SpeedType::ScalingCurFreq => "scaling_cur_freq",
+        SpeedType::ScalingMinFreq => "scaling_min_freq",
+        SpeedType::ScalingMaxFreq => "scaling_max_freq",
+    };
+    for file in [
+        primary,
+        "bios_limit",
+        "scaling_max_freq",
+        "cpuinfo_max_freq",
+    ] {
+        if let Ok(contents) = std::fs::read_to_string(format!("{base}/{file}"))
+            && let Ok(khz) = contents.trim().parse::<u64>()
+        {
+            let mhz = khz / 1000;
+            return Some(if shorthand {
+                let tenths = (mhz + 50) / 100; // round to nearest 0.1 GHz
+                format!("{}.{}", tenths / 10, tenths % 10)
+            } else {
+                format!("{}.{:03}", mhz / 1000, mhz % 1000)
+            });
+        }
+    }
+    None
+}
+
+/// Best-effort shell version (e.g. "5.9") by running `<shell> --version` and
+/// taking the first version-looking token.
+fn shell_version(name: &str) -> Option<String> {
+    let bin = name.rsplit('/').next().unwrap_or(name);
+    let out = run_command(bin, &["--version"]).ok()?;
+    let line = out.lines().next()?;
+    line.split_whitespace()
+        .find(|t| t.contains('.') && t.chars().any(|c| c.is_ascii_digit()))
+        .map(|t| t.split(['(', '-']).next().unwrap_or(t).to_string())
+}
+
+/// Best-effort desktop-environment version, mirroring neofetch's per-DE
+/// `--version` commands and taking the trailing version token.
+fn de_version(de: &str) -> Option<String> {
+    let (bin, arg) = if de.starts_with("Plasma") || de.contains("KDE") {
+        ("plasmashell", "--version")
+    } else if de.starts_with("MATE") {
+        ("mate-session", "--version")
+    } else if de.starts_with("Xfce") {
+        ("xfce4-session", "--version")
+    } else if de.starts_with("GNOME") {
+        ("gnome-shell", "--version")
+    } else if de.starts_with("Cinnamon") {
+        ("cinnamon", "--version")
+    } else if de.starts_with("Budgie") {
+        ("budgie-desktop", "--version")
+    } else if de.starts_with("LXQt") {
+        ("lxqt-session", "--version")
+    } else {
+        return None;
+    };
+    let out = run_command(bin, &[arg]).ok()?;
+    let line = out.lines().next()?;
+    // Strip a trailing "(...)" then take the last whitespace token, like neofetch.
+    let cleaned = line.split('(').next().unwrap_or(line).trim();
+    cleaned
+        .split_whitespace()
+        .next_back()
+        .map(|s| s.trim_matches('"').to_string())
+        .filter(|s| !s.is_empty())
+}
+
+/// Build the disk probe, filtering mount points by `opts.show` (empty = all).
+pub fn disk_probe_fn(opts: DiskOptions) -> ProbeResultFunction {
+    Box::new(move || {
+        let _span = debug_span!("disk_scan").entered();
+        let disks = Disks::new_with_refreshed_list();
+        let entries: Vec<ProbeValue> = disks
+            .iter()
+            .filter(|disk| {
+                opts.show.is_empty()
+                    || opts
+                        .show
+                        .iter()
+                        .any(|s| disk.mount_point() == std::path::Path::new(s))
+            })
+            .map(|disk| {
+                ProbeValue::Disk(
+                    disk.mount_point().to_path_buf(),
+                    disk.name().to_string_lossy().to_string(),
+                    disk.total_space().saturating_sub(disk.available_space()),
+                    disk.total_space(),
+                )
+            })
+            .collect();
+        Ok(ProbeResultValue::Multiple(entries))
+    })
+}
+
+/// Build the GPU probe, filtering by `opts.gpu_type` (all/dedicated/integrated).
+pub fn gpu_probe_fn(opts: GpuOptions) -> ProbeResultFunction {
+    Box::new(move || {
+        use libmacchina::traits::GeneralReadout as _;
+        let _span = debug_span!("gpu_readout").entered();
+        let entries: Vec<ProbeValue> = general_readout()
+            .gpus()?
+            .into_iter()
+            .filter(|name| match opts.gpu_type {
+                GpuType::All => true,
+                GpuType::Integrated => is_integrated_gpu(name),
+                GpuType::Dedicated => !is_integrated_gpu(name),
+            })
+            .map(ProbeValue::GPU)
+            .collect();
+        Ok(ProbeResultValue::Multiple(entries))
+    })
+}
+
+/// Heuristic for whether a GPU name denotes an integrated GPU. Best-effort:
+/// matches "Graphics" (Intel/AMD iGPU naming) and common AMD APU codenames.
+fn is_integrated_gpu(name: &str) -> bool {
+    let n = name.to_ascii_lowercase();
+    n.contains("graphics")
+        || [
+            "raphael", "renoir", "cezanne", "phoenix", "lucienne", "barcelo", "picasso",
+        ]
+        .iter()
+        .any(|c| n.contains(c))
+}
+
+/// Kernel driver(s) bound to the display controller(s), read from sysfs
+/// (the `driver` symlink of each PCI device with class `0x03xx`). Returns e.g.
+/// "amdgpu" or "i915, nvidia". Linux-only.
+#[cfg(target_os = "linux")]
+fn gpu_driver() -> Option<String> {
+    use std::fs;
+    let mut drivers: Vec<String> = Vec::new();
+    for entry in fs::read_dir("/sys/bus/pci/devices").ok()?.flatten() {
+        let path = entry.path();
+        let Ok(class) = fs::read_to_string(path.join("class")) else {
+            continue;
+        };
+        // 0x03xxxx = display controller (VGA / 3D / other display).
+        if !class.trim_start().starts_with("0x03") {
+            continue;
+        }
+        if let Ok(link) = fs::read_link(path.join("driver"))
+            && let Some(name) = link.file_name()
+        {
+            let d = name.to_string_lossy().to_string();
+            if !drivers.contains(&d) {
+                drivers.push(d);
+            }
+        }
+    }
+    (!drivers.is_empty()).then(|| drivers.join(", "))
+}
+
+#[cfg(not(target_os = "linux"))]
+fn gpu_driver() -> Option<String> {
+    None
+}
+
+/// Now-playing track lookup over MPRIS (D-Bus), pure-Rust via zbus.
+#[cfg(target_os = "linux")]
+mod song {
+    use std::collections::HashMap;
+
+    use zbus::blocking::Connection;
+    use zbus::zvariant::OwnedValue;
+
+    #[zbus::proxy(
+        interface = "org.mpris.MediaPlayer2.Player",
+        default_path = "/org/mpris/MediaPlayer2"
+    )]
+    trait Player {
+        #[zbus(property)]
+        fn metadata(&self) -> zbus::Result<HashMap<String, OwnedValue>>;
+        #[zbus(property)]
+        fn playback_status(&self) -> zbus::Result<String>;
+    }
+
+    pub struct SongInfo {
+        pub artist: String,
+        pub album: String,
+        pub title: String,
+    }
+
+    /// Query MPRIS for the current track. `player` is "auto" (prefer a playing
+    /// one, else the first with metadata) or a bus-name suffix (e.g. "spotify").
+    pub fn current(player: &str) -> Option<SongInfo> {
+        let conn = Connection::session().ok()?;
+        let dbus = zbus::blocking::fdo::DBusProxy::new(&conn).ok()?;
+        let names = dbus.list_names().ok()?;
+
+        let mut fallback: Option<SongInfo> = None;
+        for name in names.into_iter().map(|n| n.as_str().to_string()) {
+            if !name.starts_with("org.mpris.MediaPlayer2.") {
+                continue;
+            }
+            if player != "auto" {
+                let suffix = name.trim_start_matches("org.mpris.MediaPlayer2.");
+                if !suffix.eq_ignore_ascii_case(player) {
+                    continue;
+                }
+            }
+            let Ok(proxy) = PlayerProxyBlocking::builder(&conn)
+                .destination(name)
+                .and_then(|b| b.build())
+            else {
+                continue;
+            };
+            let Some(info) = proxy.metadata().ok().and_then(|m| extract(&m)) else {
+                continue;
+            };
+            if proxy
+                .playback_status()
+                .map(|s| s == "Playing")
+                .unwrap_or(false)
+            {
+                return Some(info);
+            }
+            if fallback.is_none() {
+                fallback = Some(info);
+            }
+        }
+        fallback
+    }
+
+    fn extract(meta: &HashMap<String, OwnedValue>) -> Option<SongInfo> {
+        let string_of = |key: &str| {
+            meta.get(key)
+                .and_then(|v| String::try_from(v.clone()).ok())
+                .unwrap_or_default()
+        };
+        let artist = meta
+            .get("xesam:artist")
+            .and_then(|v| Vec::<String>::try_from(v.clone()).ok())
+            .map(|a| a.join(", "))
+            .unwrap_or_default();
+        let info = SongInfo {
+            artist,
+            album: string_of("xesam:album"),
+            title: string_of("xesam:title"),
+        };
+        if info.artist.is_empty() && info.album.is_empty() && info.title.is_empty() {
+            None
+        } else {
+            Some(info)
+        }
+    }
+}
+
+/// Build the now-playing probe. Selects the player and renders the configured
+/// `song_format`; `song_shorthand` drops the album. MPRIS is Linux-only.
+#[cfg(target_os = "linux")]
+pub fn song_probe_fn(opts: SongOptions) -> ProbeResultFunction {
+    Box::new(move || {
+        let info = song::current(&opts.player).ok_or(ProbeError::MetricsUnavailable)?;
+        let fmt = if opts.shorthand {
+            "%artist% - %title%"
+        } else {
+            opts.format.as_str()
+        };
+        let text = fmt
+            .replace("%artist%", &info.artist)
+            .replace("%album%", &info.album)
+            .replace("%title%", &info.title);
+        // Collapse empty " - " segments (e.g. missing album) for the default format.
+        let text = text
+            .split(" - ")
+            .filter(|p| !p.trim().is_empty())
+            .collect::<Vec<_>>()
+            .join(" - ");
+        if text.trim().is_empty() {
+            return Err(ProbeError::MetricsUnavailable);
+        }
+        Ok(ProbeResultValue::Single(ProbeValue::Song(text)))
+    })
+}
+
+#[cfg(not(target_os = "linux"))]
+pub fn song_probe_fn(_opts: SongOptions) -> ProbeResultFunction {
+    Box::new(|| Err(ProbeError::Unimplemented))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{clean_cpu_model, format_cpu};
+    use crate::config::{CoresMode, CpuOptions};
+
+    #[test]
+    fn cpu_brand_off_drops_leading_token() {
+        let opts = CpuOptions {
+            brand: false,
+            cores: CoresMode::Off,
+            speed: false,
+            ..Default::default()
+        };
+        assert_eq!(format_cpu("AMD Ryzen 7 7800X3D", &opts), "Ryzen 7 7800X3D");
+    }
+
+    #[test]
+    fn cpu_default_brand_no_cores_no_speed_keeps_model() {
+        let opts = CpuOptions {
+            cores: CoresMode::Off,
+            speed: false,
+            ..Default::default()
+        };
+        assert_eq!(
+            format_cpu("AMD Ryzen 7 7800X3D", &opts),
+            "AMD Ryzen 7 7800X3D"
+        );
+    }
+
+    #[test]
+    fn strips_amd_core_and_processor() {
+        assert_eq!(
+            clean_cpu_model("AMD Ryzen 7 7800X3D 8-Core Processor"),
+            "AMD Ryzen 7 7800X3D"
+        );
+    }
+
+    #[test]
+    fn strips_intel_trademarks_and_cpu() {
+        assert_eq!(
+            clean_cpu_model("Intel(R) Core(TM) i7-11800H CPU"),
+            "Intel Core i7-11800H"
+        );
+    }
+
+    #[test]
+    fn leaves_clean_names_untouched() {
+        assert_eq!(clean_cpu_model("Apple M1"), "Apple M1");
+    }
+}

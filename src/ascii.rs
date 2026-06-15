@@ -6,6 +6,8 @@
 // Include the generated ASCII art module
 include!(concat!(env!("OUT_DIR"), "/ascii_art.rs"));
 
+pub mod colors;
+
 /// Primary colour for a distro logo.
 ///
 /// Used to tint the title (username@hostname) and underline. The logo art
@@ -61,14 +63,14 @@ mod tests {
 
     #[test]
     fn test_get_ascii_art_ubuntu() {
-        let (art, width) = get_ascii_art("Ubuntu");
+        let (art, width, _palette) = get_ascii_art("Ubuntu");
         assert!(!art.is_empty());
         assert!(width > 0);
     }
 
     #[test]
     fn test_get_ascii_art_fallback() {
-        let (art, width) = get_ascii_art("unknown_distro_xyz");
+        let (art, width, _palette) = get_ascii_art("unknown_distro_xyz");
         assert!(!art.is_empty());
         assert!(width > 0);
     }

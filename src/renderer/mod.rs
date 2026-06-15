@@ -4,6 +4,8 @@ use tracing::info_span;
 
 use crate::probe::{ProbeList, ProbeResultValue};
 
+pub mod image;
+pub mod json;
 pub mod neofetch;
 
 pub fn execute_probes_streaming<F>(probe_list: &ProbeList, mut on_result: F)

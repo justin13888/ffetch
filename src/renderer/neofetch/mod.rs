@@ -2,15 +2,17 @@ use std::io::{IsTerminal, Write};
 
 use crossterm::{
     cursor, execute, queue,
-    style::{Color, Print, ResetColor, SetBackgroundColor, SetForegroundColor},
+    style::{
+        Attribute, Color, Print, ResetColor, SetAttribute, SetBackgroundColor, SetForegroundColor,
+    },
     terminal,
 };
 use tracing::debug;
 
 use crate::{
     ascii::{get_ascii_art, get_distro_color, get_filler},
-    config::NeofetchRendererConfig,
-    probe::{ProbeList, ProbeResultValue, ProbeValue, general_readout},
+    config::{Backend, NeofetchRendererConfig},
+    probe::{ProbeList, ProbeResultValue, general_readout},
 };
 
 use super::{RendererError, execute_probes_streaming};
@@ -26,6 +28,46 @@ impl Default for NeofetchRenderer {
     }
 }
 
+/// Resolved text colours for the six neofetch slots.
+struct ResolvedColors {
+    title: Color,
+    at: Color,
+    underline: Color,
+    subtitle: Color,
+    colon: Color,
+    info: Color,
+}
+
+/// Resolve the configured `colors` slots against the distro `primary` colour.
+/// Empty `colors` reproduces neofetch's distro defaults (everything the logo
+/// colour, values in the terminal's default foreground).
+fn resolve_colors(colors: &[u8], primary: Color) -> ResolvedColors {
+    if colors.is_empty() {
+        return ResolvedColors {
+            title: primary,
+            at: primary,
+            underline: primary,
+            subtitle: primary,
+            colon: primary,
+            info: Color::Reset,
+        };
+    }
+    let slot = |i: usize| {
+        colors
+            .get(i)
+            .map(|&c| Color::AnsiValue(c))
+            .unwrap_or(primary)
+    };
+    ResolvedColors {
+        title: slot(0),
+        at: slot(1),
+        underline: slot(2),
+        subtitle: slot(3),
+        colon: slot(4),
+        info: slot(5),
+    }
+}
+
 impl NeofetchRenderer {
     pub fn new(config: NeofetchRendererConfig) -> Self {
         let probe_list = config
@@ -36,26 +78,82 @@ impl NeofetchRenderer {
         Self { config, probe_list }
     }
 
+    /// Write `text` in `color`, optionally bold, then reset. ANSI is zero-width
+    /// so this never affects the renderer's column math.
+    fn put<W: Write>(w: &mut W, color: Color, bold: bool, text: &str) -> std::io::Result<()> {
+        // Honour the NO_COLOR convention (set by `--stdout`).
+        if std::env::var_os("NO_COLOR").is_some() {
+            return queue!(w, Print(text));
+        }
+        if bold {
+            queue!(
+                w,
+                SetAttribute(Attribute::Bold),
+                SetForegroundColor(color),
+                Print(text),
+                SetAttribute(Attribute::Reset),
+            )
+        } else {
+            queue!(w, SetForegroundColor(color), Print(text), ResetColor)
+        }
+    }
+
     pub fn draw(&self) -> Result<(), RendererError> {
         use libmacchina::traits::GeneralReadout as _;
 
-        let distro = general_readout()
+        // The Kitty image backend short-circuits the ASCII renderer when it
+        // applies; otherwise it returns false and we fall through to ASCII.
+        if self.draw_image()? {
+            return Ok(());
+        }
+
+        let detected = general_readout()
             .distribution()
             .or_else(|_| general_readout().os_name())
             .unwrap_or_else(|_| "Linux".to_string());
 
-        debug!("Detected distro: {}", distro);
+        // `ascii_distro` overrides which logo (and its tint) is shown.
+        let distro = self.config.ascii.distro.clone().unwrap_or(detected);
+        debug!("Logo distro: {}", distro);
 
-        let (ascii_art, ascii_width) = get_ascii_art(&distro);
+        let (full_art, full_width, base_palette) = get_ascii_art(&distro);
+        // `backend = off` (neofetch --off) drops the logo entirely.
+        let (ascii_art, ascii_width): (&[&str], usize) = if self.config.backend == Backend::Off {
+            (&[], 0)
+        } else {
+            (full_art, full_width)
+        };
         let primary_color = get_distro_color(&distro);
+        // `ascii_colors` overrides the logo palette (padded with the logo's own).
+        let palette: [u8; 6] = {
+            let mut p = base_palette;
+            for (i, &c) in self.config.ascii.colors.iter().take(6).enumerate() {
+                p[i] = c;
+            }
+            p
+        };
+        let ascii_bold = self.config.ascii.bold;
+        let no_color = std::env::var_os("NO_COLOR").is_some();
         let filler = get_filler(ascii_width);
-        let get_art =
-            |idx: usize| -> &str { ascii_art.get(idx).copied().unwrap_or(filler.as_str()) };
+        // Expand `${cN}` markers at render time (or strip them under NO_COLOR).
+        let get_art = |idx: usize| -> String {
+            let raw = ascii_art.get(idx).copied().unwrap_or(filler.as_str());
+            if no_color {
+                crate::ascii::colors::strip(raw)
+            } else {
+                crate::ascii::colors::expand(raw, &palette, ascii_bold)
+            }
+        };
+
+        let colors = resolve_colors(&self.config.colors, primary_color);
+        let bold = self.config.bold;
+        let sep = self.config.separator.as_str();
+        let sep_width = sep.chars().count();
 
         let max_title_len = self
             .probe_list
             .iter()
-            .map(|(title, _)| title.len())
+            .map(|(title, _)| title.chars().count())
             .max()
             .unwrap_or(0);
 
@@ -69,53 +167,62 @@ impl NeofetchRenderer {
         // Print title (username@hostname)
         if self.config.title {
             let username = general_readout().username()?;
-            let hostname = general_readout().hostname()?;
-            title_len = username.len() + hostname.len() + 1;
-            queue!(
-                w,
-                SetForegroundColor(primary_color),
-                Print(get_art(art_idx)),
-                ResetColor,
-                Print("   "),
-                SetForegroundColor(primary_color),
-                Print(&username),
-                ResetColor,
-                Print("@"),
-                SetForegroundColor(primary_color),
-                Print(&hostname),
-                ResetColor,
-                Print("\n"),
-            )?;
+            let mut hostname = general_readout().hostname()?;
+            if !self.config.title_fqdn
+                && let Some((short, _domain)) = hostname.split_once('.')
+            {
+                hostname = short.to_string();
+            }
+            title_len = username.chars().count() + hostname.chars().count() + 1;
+            Self::put(&mut w, primary_color, false, &get_art(art_idx))?;
+            queue!(w, Print("   "))?;
+            Self::put(&mut w, colors.title, bold, &username)?;
+            Self::put(&mut w, colors.at, bold, "@")?;
+            Self::put(&mut w, colors.title, bold, &hostname)?;
+            queue!(w, Print("\n"))?;
             art_idx += 1;
         }
 
         // Print underline
         if self.config.underline {
-            queue!(
-                w,
-                SetForegroundColor(primary_color),
-                Print(get_art(art_idx)),
-                ResetColor,
-                Print("   "),
-                Print("-".repeat(title_len)),
-                Print("\n"),
+            Self::put(&mut w, primary_color, false, &get_art(art_idx))?;
+            queue!(w, Print("   "))?;
+            Self::put(
+                &mut w,
+                colors.underline,
+                false,
+                &self.config.underline_char.repeat(title_len),
             )?;
+            queue!(w, Print("\n"))?;
             art_idx += 1;
         }
 
         let probe_art_start = art_idx;
         let n_probes = self.probe_list.len();
-        // Column (0-based) where values start: ascii + "   " + padded_title + " "
-        let value_col = (ascii_width + 3 + max_title_len + 2) as u16;
+        // Column (0-based) where values start: ascii + "   " + padded label + sep + " ".
+        let value_col = (ascii_width + 3 + max_title_len + sep_width + 1) as u16;
+        // Per-probe config, aligned with `probe_list` by index, for option-aware formatting.
+        let probes = &self.config.probes;
+
+        // Emit one full probe line: art, label, separator, value.
+        let put_line = |w: &mut std::io::BufWriter<_>, art: &str, label: &str, value: &str| {
+            Self::put(w, primary_color, false, art)?;
+            queue!(w, Print("   "))?;
+            Self::put(w, colors.subtitle, bold, label)?;
+            Self::put(w, colors.colon, bold, sep)?;
+            queue!(w, Print(" "))?;
+            Self::put(w, colors.info, false, value)?;
+            queue!(w, Print("\n"))
+        };
 
         if !is_tty {
             // Non-TTY: run probes in parallel, print results sequentially
             let mut all_results: Vec<Option<Vec<String>>> = vec![None; n_probes];
             execute_probes_streaming(&self.probe_list, |index, _, result| {
                 all_results[index] = Some(match result {
-                    Some(ProbeResultValue::Single(v)) => vec![Self::probe_config_to_string(&v)],
+                    Some(ProbeResultValue::Single(v)) => vec![probes[index].format_value(&v)],
                     Some(ProbeResultValue::Multiple(vs)) => {
-                        vs.iter().map(Self::probe_config_to_string).collect()
+                        vs.iter().map(|v| probes[index].format_value(v)).collect()
                     }
                     None => vec![],
                 });
@@ -129,43 +236,25 @@ impl NeofetchRenderer {
                     }
                     Some(ss) => ss.to_vec(),
                 };
-                let padded_title = format!("{:width$}:", title, width = max_title_len);
+                let label = format!("{:width$}", title, width = max_title_len);
                 for s in strings.iter() {
                     // Repeat the label on every line (e.g. one "GPU:" per GPU),
                     // matching neofetch rather than leaving orphaned values.
-                    queue!(
-                        w,
-                        SetForegroundColor(primary_color),
-                        Print(get_art(art_idx)),
-                        ResetColor,
-                        Print("   "),
-                        SetForegroundColor(primary_color),
-                        Print(&padded_title),
-                        ResetColor,
-                        Print(" "),
-                        Print(s),
-                        Print("\n"),
-                    )?;
+                    put_line(&mut w, &get_art(art_idx), &label, s)?;
                     art_idx += 1;
                 }
             }
         } else {
             // TTY: progressive rendering with cursor movement
 
-            // Phase 1: print all placeholder lines immediately
+            // Phase 1: print all placeholder lines immediately (label + separator).
             for (i, (title, _)) in self.probe_list.iter().enumerate() {
-                let padded_title = format!("{:width$}:", title, width = max_title_len);
-                queue!(
-                    w,
-                    SetForegroundColor(primary_color),
-                    Print(get_art(probe_art_start + i)),
-                    ResetColor,
-                    Print("   "),
-                    SetForegroundColor(primary_color),
-                    Print(padded_title),
-                    ResetColor,
-                    Print(" \n"),
-                )?;
+                let label = format!("{:width$}", title, width = max_title_len);
+                Self::put(&mut w, primary_color, false, &get_art(probe_art_start + i))?;
+                queue!(w, Print("   "))?;
+                Self::put(&mut w, colors.subtitle, bold, &label)?;
+                Self::put(&mut w, colors.colon, bold, sep)?;
+                queue!(w, Print(" \n"))?;
             }
             w.flush()?;
             // Save cursor position at the bottom of the probe section
@@ -177,9 +266,9 @@ impl NeofetchRenderer {
 
             execute_probes_streaming(&self.probe_list, |index, _label, result| {
                 let strings: Vec<String> = match result {
-                    Some(ProbeResultValue::Single(v)) => vec![Self::probe_config_to_string(&v)],
+                    Some(ProbeResultValue::Single(v)) => vec![probes[index].format_value(&v)],
                     Some(ProbeResultValue::Multiple(vs)) => {
-                        vs.iter().map(Self::probe_config_to_string).collect()
+                        vs.iter().map(|v| probes[index].format_value(v)).collect()
                     }
                     None => vec![],
                 };
@@ -192,9 +281,9 @@ impl NeofetchRenderer {
                         cursor::RestorePosition,
                         cursor::MoveUp(lines_up),
                         cursor::MoveToColumn(value_col),
-                        Print(&strings[0]),
-                        cursor::RestorePosition,
                     );
+                    let _ = Self::put(&mut w, colors.info, false, &strings[0]);
+                    let _ = execute!(w, cursor::RestorePosition);
                 } else {
                     // Zero (failure) or multiple values: needs a re-render pass
                     needs_rerender = true;
@@ -221,23 +310,9 @@ impl NeofetchRenderer {
                         }
                         Some(ss) => ss.to_vec(),
                     };
-                    let padded_title = format!("{:width$}:", title, width = max_title_len);
+                    let label = format!("{:width$}", title, width = max_title_len);
                     for s in strings.iter() {
-                        // Repeat the label on every line (e.g. one "GPU:" per GPU),
-                        // matching neofetch rather than leaving orphaned values.
-                        queue!(
-                            w,
-                            SetForegroundColor(primary_color),
-                            Print(get_art(ra_idx)),
-                            ResetColor,
-                            Print("   "),
-                            SetForegroundColor(primary_color),
-                            Print(&padded_title),
-                            ResetColor,
-                            Print(" "),
-                            Print(s),
-                            Print("\n"),
-                        )?;
+                        put_line(&mut w, &get_art(ra_idx), &label, s)?;
                         ra_idx += 1;
                     }
                 }
@@ -250,240 +325,154 @@ impl NeofetchRenderer {
             }
         }
 
-        // Print color blocks
-        if self.config.col {
+        // Print color blocks (skipped under NO_COLOR — they're meaningless without colour).
+        if self.config.col && std::env::var_os("NO_COLOR").is_none() {
+            let cb = &self.config.color_blocks;
+            let offset = " ".repeat(cb.offset.unwrap_or(3) as usize);
+            let block = " ".repeat(cb.width.max(1) as usize);
+            let height = cb.height.max(1);
+            let (start, end) = (cb.range[0], cb.range[1]);
+
             // Spacer line between probes and color blocks
-            queue!(
-                w,
-                SetForegroundColor(primary_color),
-                Print(get_art(art_idx)),
-                ResetColor,
-                Print("\n"),
-            )?;
-            art_idx += 1;
-
-            // Row 1: dark/standard colors (equivalent to ANSI background 40-47)
-            queue!(
-                w,
-                SetForegroundColor(primary_color),
-                Print(get_art(art_idx)),
-                ResetColor,
-                Print("   "),
-            )?;
-            for color in [
-                Color::Black,
-                Color::DarkRed,
-                Color::DarkGreen,
-                Color::DarkYellow,
-                Color::DarkBlue,
-                Color::DarkMagenta,
-                Color::DarkCyan,
-                Color::Grey,
-            ] {
-                queue!(w, SetBackgroundColor(color), Print("   "), ResetColor)?;
-            }
+            Self::put(&mut w, primary_color, false, &get_art(art_idx))?;
             queue!(w, Print("\n"))?;
             art_idx += 1;
 
-            // Row 2: bright colors (equivalent to ANSI background 100-107)
-            queue!(
-                w,
-                SetForegroundColor(primary_color),
-                Print(get_art(art_idx)),
-                ResetColor,
-                Print("   "),
-            )?;
-            for color in [
-                Color::DarkGrey,
-                Color::Red,
-                Color::Green,
-                Color::Yellow,
-                Color::Blue,
-                Color::Magenta,
-                Color::Cyan,
-                Color::White,
-            ] {
-                queue!(w, SetBackgroundColor(color), Print("   "), ResetColor)?;
+            // Standard colours (0-7) then bright/extended colours (8+), each
+            // group spanning `height` rows. The [0,15] default reproduces the
+            // classic two rows of eight.
+            let dark: Vec<u8> = (start..=end.min(7)).collect();
+            let bright: Vec<u8> = (start.max(8)..=end).collect();
+            for group in [dark, bright] {
+                if group.is_empty() {
+                    continue;
+                }
+                for _ in 0..height {
+                    Self::put(&mut w, primary_color, false, &get_art(art_idx))?;
+                    queue!(w, Print(&offset))?;
+                    for c in &group {
+                        queue!(
+                            w,
+                            SetBackgroundColor(Color::AnsiValue(*c)),
+                            Print(&block),
+                            ResetColor
+                        )?;
+                    }
+                    queue!(w, Print("\n"))?;
+                    art_idx += 1;
+                }
             }
-            queue!(w, Print("\n"))?;
-            art_idx += 1;
         }
 
         // Print remaining ASCII art lines
         for line in ascii_art.iter().skip(art_idx) {
-            queue!(
-                w,
-                SetForegroundColor(primary_color),
-                Print(line),
-                ResetColor,
-                Print("\n"),
-            )?;
+            let art = if no_color {
+                crate::ascii::colors::strip(line)
+            } else {
+                crate::ascii::colors::expand(line, &palette, ascii_bold)
+            };
+            Self::put(&mut w, primary_color, false, &art)?;
+            queue!(w, Print("\n"))?;
         }
 
         w.flush()?;
         Ok(())
     }
 
-    /// Convert a probe value to a string
-    fn probe_config_to_string(probe_value: &ProbeValue) -> String {
-        match probe_value {
-            ProbeValue::Host(username, hostname) => format!("{}@{}", username, hostname),
-            ProbeValue::OS(os) => os.to_string(),
-            ProbeValue::Distro(distro) => distro.to_string(),
-            ProbeValue::Model(vendor, product) => format!("{} {}", vendor, product),
-            ProbeValue::Kernel(kernel) => kernel.to_string(),
-            ProbeValue::Uptime(uptime) => {
-                let days = uptime / 86400;
-                let hours = (uptime % 86400) / 3600;
-                let minutes = (uptime % 3600) / 60;
-                let seconds = uptime % 60;
+    /// If the Kitty image backend applies, render the image with the info block
+    /// beside it and return `true`; otherwise return `false` to fall back to
+    /// ASCII. Falls back whenever the terminal isn't Kitty or the source isn't
+    /// a readable PNG, so non-Kitty terminals are unaffected.
+    fn draw_image(&self) -> Result<bool, RendererError> {
+        use crate::renderer::image;
 
-                // Pluralize each unit independently, like neofetch ("1 day, 7 hours").
-                let unit = |n: usize, word: &str| {
-                    if n == 1 {
-                        format!("{} {}", n, word)
-                    } else {
-                        format!("{} {}s", n, word)
-                    }
-                };
+        if self.config.backend != Backend::Kitty {
+            return Ok(false);
+        }
+        let Some(src) = self.config.image_source.clone() else {
+            return Ok(false);
+        };
+        if !image::kitty_supported() {
+            return Ok(false);
+        }
+        let Ok(png) = std::fs::read(&src) else {
+            return Ok(false);
+        };
+        let Some((iw, ih)) = image::png_dimensions(&png) else {
+            return Ok(false);
+        };
 
-                if days > 0 {
-                    format!(
-                        "{}, {}, {}",
-                        unit(days, "day"),
-                        unit(hours, "hour"),
-                        unit(minutes, "min")
-                    )
-                } else if hours > 0 {
-                    format!("{}, {}", unit(hours, "hour"), unit(minutes, "min"))
-                } else if minutes > 0 {
-                    unit(minutes, "min")
-                } else {
-                    unit(seconds, "sec")
+        let cols = self.config.image_cols.max(1) as u32;
+        // Terminal cells are ~2x taller than wide, so halve the row estimate.
+        let rows = ((cols as f64 * ih as f64 / iw as f64) / 2.0)
+            .round()
+            .max(1.0) as u32;
+        let pad = " ".repeat(cols as usize + 2);
+
+        let lines = self.build_info_lines()?;
+
+        let mut w = std::io::BufWriter::new(std::io::stdout().lock());
+        // Print the info block left-padded to clear the image area, then draw the
+        // image over that margin from the saved top-left position.
+        execute!(w, cursor::SavePosition)?;
+        for line in &lines {
+            write!(w, "{pad}{line}\r\n")?;
+        }
+        execute!(w, cursor::RestorePosition)?;
+        image::display_png(&mut w, &png, cols, rows)?;
+        let total = lines.len().max(rows as usize) as u16;
+        execute!(w, cursor::RestorePosition, cursor::MoveToNextLine(total))?;
+        w.flush()?;
+        Ok(true)
+    }
+
+    /// Build the plain info lines (title, underline, probe values) for the image
+    /// backend, where the image rather than ASCII art occupies the left column.
+    fn build_info_lines(&self) -> Result<Vec<String>, RendererError> {
+        use libmacchina::traits::GeneralReadout as _;
+
+        let probes = &self.config.probes;
+        let max_title = probes
+            .iter()
+            .map(|p| p.label().chars().count())
+            .max()
+            .unwrap_or(0);
+
+        let mut results: Vec<Option<Vec<String>>> = vec![None; self.probe_list.len()];
+        execute_probes_streaming(&self.probe_list, |index, _, result| {
+            results[index] = Some(match result {
+                Some(ProbeResultValue::Single(v)) => vec![probes[index].format_value(&v)],
+                Some(ProbeResultValue::Multiple(vs)) => {
+                    vs.iter().map(|v| probes[index].format_value(v)).collect()
+                }
+                None => vec![],
+            });
+        });
+
+        let sep = &self.config.separator;
+        let mut lines = Vec::new();
+        if self.config.title {
+            let username = general_readout().username()?;
+            let mut hostname = general_readout().hostname()?;
+            if !self.config.title_fqdn
+                && let Some((short, _)) = hostname.split_once('.')
+            {
+                hostname = short.to_string();
+            }
+            let title = format!("{username}@{hostname}");
+            let len = title.chars().count();
+            lines.push(title);
+            if self.config.underline {
+                lines.push(self.config.underline_char.repeat(len));
+            }
+        }
+        for (i, p) in probes.iter().enumerate() {
+            if let Some(strings) = &results[i] {
+                for s in strings {
+                    lines.push(format!("{:max_title$}{sep} {s}", p.label()));
                 }
             }
-            ProbeValue::Packages(counts) => counts
-                .iter()
-                .map(|(manager, count)| format!("{} ({})", count, manager))
-                .collect::<Vec<_>>()
-                .join(", "),
-            ProbeValue::Shell(shell) => shell.to_string(),
-            ProbeValue::Editor(editor) => editor.to_string(),
-            ProbeValue::Resolution(resolution) => resolution.to_string(),
-            ProbeValue::DE(de) => de.to_string(),
-            ProbeValue::WM(wm) => wm.to_string(),
-            ProbeValue::WMTheme(wm_theme) => wm_theme.to_string(),
-            ProbeValue::Theme(theme) => theme.to_string(),
-            ProbeValue::Icons(icons) => icons.to_string(),
-            ProbeValue::Cursor(cursor) => cursor.to_string(),
-            ProbeValue::Terminal(terminal) => terminal.to_string(),
-            ProbeValue::TerminalFont(terminal_font) => terminal_font.to_string(),
-            ProbeValue::CPU(cpu) => format_cpu(cpu),
-            ProbeValue::GPU(gpu) => gpu.to_string(),
-            ProbeValue::Memory(used, total) => {
-                format!("{}MiB / {}MiB", *used / 1024, *total / 1024,)
-            }
-            ProbeValue::Network(network) => network.to_string(),
-            ProbeValue::Bluetooth(bluetooth) => bluetooth.to_string(),
-            ProbeValue::BIOS(bios) => bios.to_string(),
-            ProbeValue::GPUDriver(gpu_driver) => gpu_driver.to_string(),
-            ProbeValue::CPUUsage(cpu_usage) => format!("{}%", cpu_usage),
-            ProbeValue::Disk(_mountpoint, used, total) => format!(
-                "{} G / {} G ({}%)",
-                (*used as f32 / (1024.0 * 1024.0 * 1024.0)).round() as i32,
-                (*total as f32 / (1024.0 * 1024.0 * 1024.0)).round() as i32,
-                (*used as f32 / *total as f32 * 100.0).round() as i32,
-            ),
-            ProbeValue::Battery(battery) => battery.to_string(),
-            ProbeValue::PowerAdapter(power_adapter) => power_adapter.to_string(),
-            ProbeValue::Font(font) => font.to_string(),
-            ProbeValue::Song(song) => song.to_string(),
-            ProbeValue::LocalIP(local_ip) => local_ip.to_string(),
-            ProbeValue::PublicIP(public_ip) => public_ip.to_string(),
-            ProbeValue::Users(users) => users.join(", "),
-            ProbeValue::Locale(locale) => locale.to_string(),
-            ProbeValue::Java(java) => java.to_string(),
-            ProbeValue::Node(node) => node.to_string(),
-            ProbeValue::Python(python) => python.to_string(),
-            ProbeValue::Rust(rust) => rust.to_string(),
         }
-    }
-}
-
-/// Format a raw CPU model into neofetch's CPU line: cruft stripped, with the
-/// logical core count and max clock appended, e.g.
-/// "AMD Ryzen 7 7800X3D (16) @ 5.053GHz".
-fn format_cpu(model: &str) -> String {
-    use libmacchina::traits::GeneralReadout as _;
-
-    let mut cpu = clean_cpu_model(model);
-    if let Ok(cores) = general_readout().cpu_cores() {
-        cpu.push_str(&format!(" ({})", cores));
-    }
-    if let Some(ghz) = cpu_max_ghz() {
-        cpu.push_str(&format!(" @ {}GHz", ghz));
-    }
-    cpu
-}
-
-/// Strip the marketing cruft neofetch removes from CPU model strings
-/// (`(R)`, `(TM)`, `CPU`, `Processor`, `N-Core`, …) and collapse whitespace.
-fn clean_cpu_model(model: &str) -> String {
-    let mut s = model.to_string();
-    for pat in ["(R)", "(r)", "(TM)", "(tm)", "CPU", "Processor"] {
-        s = s.replace(pat, " ");
-    }
-    s.split_whitespace()
-        .filter(|tok| {
-            // Drop "N-Core" tokens (e.g. "8-Core").
-            let core = tok.to_ascii_lowercase();
-            !(core.ends_with("-core")
-                && core
-                    .trim_end_matches("-core")
-                    .chars()
-                    .all(|c| c.is_ascii_digit()))
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
-/// Read the CPU's max frequency from sysfs and render it as GHz (e.g.
-/// "5.053"), matching neofetch. Returns `None` when sysfs is unavailable.
-fn cpu_max_ghz() -> Option<String> {
-    let base = "/sys/devices/system/cpu/cpu0/cpufreq";
-    for file in ["bios_limit", "scaling_max_freq", "cpuinfo_max_freq"] {
-        if let Ok(contents) = std::fs::read_to_string(format!("{base}/{file}"))
-            && let Ok(khz) = contents.trim().parse::<u64>()
-        {
-            let mhz = khz / 1000;
-            return Some(format!("{}.{:03}", mhz / 1000, mhz % 1000));
-        }
-    }
-    None
-}
-
-#[cfg(test)]
-mod tests {
-    use super::clean_cpu_model;
-
-    #[test]
-    fn strips_amd_core_and_processor() {
-        assert_eq!(
-            clean_cpu_model("AMD Ryzen 7 7800X3D 8-Core Processor"),
-            "AMD Ryzen 7 7800X3D"
-        );
-    }
-
-    #[test]
-    fn strips_intel_trademarks_and_cpu() {
-        assert_eq!(
-            clean_cpu_model("Intel(R) Core(TM) i7-11800H CPU"),
-            "Intel Core i7-11800H"
-        );
-    }
-
-    #[test]
-    fn leaves_clean_names_untouched() {
-        assert_eq!(clean_cpu_model("Apple M1"), "Apple M1");
+        Ok(lines)
     }
 }

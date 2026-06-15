@@ -3,10 +3,11 @@
 //! Reads `ascii/distros/*.txt` and emits a generated Rust module with one
 //! constant per logo plus a `get_ascii_art` lookup function.
 //!
-//! `${c1}`..`${c6}` colour placeholders in logo text are expanded at build
-//! time into ANSI escapes using the per‑distro palette below. Width is
-//! computed after stripping the escapes so multi‑byte ANSI doesn't break
-//! probe alignment in the renderer.
+//! `${c1}`..`${c6}` colour placeholders are kept verbatim in the emitted art
+//! and expanded at *runtime* (see `src/ascii/colors.rs`) so `ascii_colors`
+//! remapping can recolour a logo. Each logo also gets a `_PALETTE` constant:
+//! either from a leading `# set_colors N N ...` line (neofetch format) or the
+//! built-in table below. Width is computed treating markers as zero-width.
 
 use std::env;
 use std::fs;
@@ -49,42 +50,49 @@ fn main() {
 
     for (name, content) in &distros {
         let const_name = name.to_uppercase().replace('-', "_");
-        let palette = distro_palette(name);
-        let raw_lines: Vec<&str> = content.lines().collect();
 
-        // Expand placeholders into ANSI escapes for each line.
-        let expanded_lines: Vec<String> = raw_lines
-            .iter()
-            .map(|l| expand_markers(l, &palette))
-            .collect();
-        // Compute padding width after stripping the ANSI.
-        let max_width = expanded_lines
-            .iter()
-            .map(|l| visible_width(l))
-            .max()
-            .unwrap_or(0);
+        // An optional leading `# set_colors N N ...` line (neofetch-style) sets
+        // the palette; otherwise fall back to the built-in table.
+        let mut lines: Vec<&str> = content.lines().collect();
+        let palette = match lines.first().and_then(|l| parse_set_colors(l)) {
+            Some(p) => {
+                lines.remove(0);
+                p
+            }
+            None => distro_palette(name),
+        };
+
+        // Keep the `${c1}`..`${c6}` markers in the emitted art; they are expanded
+        // at runtime so `ascii_colors` remapping can recolour. Width is the
+        // visible width with markers treated as zero-width.
+        let max_width = lines.iter().map(|l| visible_width(l)).max().unwrap_or(0);
 
         code.push_str(&format!("/// ASCII art for {}\n", name));
         code.push_str(&format!(
             "pub const ASCII_ART_{}: &[&str] = &[\n",
             const_name
         ));
-        for line in &expanded_lines {
-            // Pad each line's visible width up to max_width with trailing spaces.
+        for line in &lines {
             let pad = max_width.saturating_sub(visible_width(line));
             let padded = format!("{line}{}", " ".repeat(pad));
             code.push_str(&format!("    {:?},\n", padded));
         }
         code.push_str("];\n\n");
         code.push_str(&format!(
-            "pub const ASCII_ART_{}_WIDTH: usize = {};\n\n",
+            "pub const ASCII_ART_{}_WIDTH: usize = {};\n",
             const_name, max_width
+        ));
+        code.push_str(&format!(
+            "pub const ASCII_ART_{}_PALETTE: [u8; 6] = {:?};\n\n",
+            const_name, palette
         ));
     }
 
     code.push_str("/// Get ASCII art for a given distro name.\n");
     code.push_str("/// Returns the art lines and the maximum display width.\n");
-    code.push_str("pub fn get_ascii_art(distro: &str) -> (&'static [&'static str], usize) {\n");
+    code.push_str(
+        "pub fn get_ascii_art(distro: &str) -> (&'static [&'static str], usize, [u8; 6]) {\n",
+    );
     code.push_str("    let distro_lower = distro.to_lowercase();\n");
 
     let generic_names = ["linux", "macos", "windows"];
@@ -109,8 +117,8 @@ fn main() {
             match_key
         ));
         code.push_str(&format!(
-            "        return (ASCII_ART_{}, ASCII_ART_{}_WIDTH);\n",
-            const_name, const_name
+            "        return (ASCII_ART_{0}, ASCII_ART_{0}_WIDTH, ASCII_ART_{0}_PALETTE);\n",
+            const_name
         ));
         code.push_str("    }\n");
     }
@@ -118,20 +126,28 @@ fn main() {
         let const_name = name.to_uppercase().replace('-', "_");
         code.push_str(&format!("    if distro_lower.contains(\"{}\") {{\n", name));
         code.push_str(&format!(
-            "        return (ASCII_ART_{}, ASCII_ART_{}_WIDTH);\n",
-            const_name, const_name
+            "        return (ASCII_ART_{0}, ASCII_ART_{0}_WIDTH, ASCII_ART_{0}_PALETTE);\n",
+            const_name
         ));
         code.push_str("    }\n");
     }
 
     code.push_str("    #[cfg(target_os = \"linux\")]\n");
-    code.push_str("    return (ASCII_ART_LINUX, ASCII_ART_LINUX_WIDTH);\n");
+    code.push_str(
+        "    return (ASCII_ART_LINUX, ASCII_ART_LINUX_WIDTH, ASCII_ART_LINUX_PALETTE);\n",
+    );
     code.push_str("    #[cfg(target_os = \"macos\")]\n");
-    code.push_str("    return (ASCII_ART_MACOS, ASCII_ART_MACOS_WIDTH);\n");
+    code.push_str(
+        "    return (ASCII_ART_MACOS, ASCII_ART_MACOS_WIDTH, ASCII_ART_MACOS_PALETTE);\n",
+    );
     code.push_str("    #[cfg(target_os = \"windows\")]\n");
-    code.push_str("    return (ASCII_ART_WINDOWS, ASCII_ART_WINDOWS_WIDTH);\n");
+    code.push_str(
+        "    return (ASCII_ART_WINDOWS, ASCII_ART_WINDOWS_WIDTH, ASCII_ART_WINDOWS_PALETTE);\n",
+    );
     code.push_str("    #[cfg(not(any(target_os = \"linux\", target_os = \"macos\", target_os = \"windows\")))]\n");
-    code.push_str("    return (ASCII_ART_LINUX, ASCII_ART_LINUX_WIDTH);\n");
+    code.push_str(
+        "    return (ASCII_ART_LINUX, ASCII_ART_LINUX_WIDTH, ASCII_ART_LINUX_PALETTE);\n",
+    );
     code.push_str("}\n");
 
     fs::write(&dest_path, code).expect("Failed to write generated ascii_art.rs");
@@ -211,38 +227,17 @@ fn distro_palette(name: &str) -> [u8; 6] {
     }
 }
 
-/// Replace `${c1}`..`${c6}` placeholders in a single line with the matching
-/// 256-colour ANSI escape sequence. Returns the expanded line with a trailing
-/// SGR reset so colour can't bleed past the line.
-fn expand_markers(line: &str, palette: &[u8; 6]) -> String {
-    if !line.contains("${c") {
-        return line.to_string();
-    }
-    let mut out = String::with_capacity(line.len() + 16);
-    let mut chars = line.chars().peekable();
-    while let Some(c) = chars.next() {
-        if c == '$' && chars.peek() == Some(&'{') {
-            chars.next();
-            let mut tag = String::new();
-            while let Some(&next) = chars.peek() {
-                chars.next();
-                if next == '}' {
-                    break;
-                }
-                tag.push(next);
-            }
-            if let Some(idx_str) = tag.strip_prefix('c')
-                && let Ok(idx) = idx_str.parse::<usize>()
-                && (1..=6).contains(&idx)
-            {
-                out.push_str(&format!("\x1b[38;5;{}m", palette[idx - 1]));
-            }
-        } else {
-            out.push(c);
+/// Parse a leading `# set_colors N N ...` directive into a 6-slot palette
+/// (unspecified slots default to 7, the foreground), or `None` if absent.
+fn parse_set_colors(line: &str) -> Option<[u8; 6]> {
+    let rest = line.trim().strip_prefix("# set_colors")?;
+    let mut palette = [7u8; 6];
+    for (i, tok) in rest.split_whitespace().take(6).enumerate() {
+        if let Ok(v) = tok.parse() {
+            palette[i] = v;
         }
     }
-    out.push_str("\x1b[0m");
-    out
+    Some(palette)
 }
 
 /// Emit the `PURR_*` `cargo:rustc-env` vars consumed by `src/version.rs` to
@@ -354,11 +349,11 @@ fn visible_width(s: &str) -> usize {
     let mut count = 0usize;
     let mut chars = s.chars().peekable();
     while let Some(c) = chars.next() {
-        if c == '\x1b' && chars.peek() == Some(&'[') {
+        // `${...}` colour markers are zero visible width.
+        if c == '$' && chars.peek() == Some(&'{') {
             chars.next();
-            while let Some(&next) = chars.peek() {
-                chars.next();
-                if next.is_ascii_alphabetic() {
+            for n in chars.by_ref() {
+                if n == '}' {
                     break;
                 }
             }
