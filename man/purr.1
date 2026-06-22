@@ -1,0 +1,153 @@
+.ie \n(.g .ds Aq \(aq
+.el .ds Aq '
+.TH purr 1  "purr 0.1.0" 
+.ie \n(.g .ds Aq \(aq
+.el .ds Aq '
+.SH NAME
+purr \- Fast, featureful, cross\-platform fetching tool written in Rust 
+.ie \n(.g .ds Aq \(aq
+.el .ds Aq '
+.SH SYNOPSIS
+\fBpurr\fR [\fB\-\-verbose\fR] [\fB\-c\fR|\fB\-\-config\fR] [\fB\-\-no\-config\fR] [\fB\-\-all\fR] [\fB\-n\fR|\fB\-\-neofetch\fR] [\fB\-\-json\fR] [\fB\-\-ascii_distro\fR] [\fB\-\-ascii_colors\fR] [\fB\-\-no_ascii_bold\fR] [\fB\-L\fR|\fB\-\-logo\fR] [\fB\-\-off\fR] [\fB\-\-backend\fR] [\fB\-\-source\fR] [\fB\-\-separator\fR] [\fB\-\-no_bold\fR] [\fB\-\-underline_char\fR] [\fB\-\-title_fqdn\fR] [\fB\-\-colors\fR] [\fB\-\-stdout\fR] [\fB\-\-memory_unit\fR] [\fB\-\-uptime_shorthand\fR] [\fB\-\-cpu_cores\fR] [\fB\-h\fR|\fB\-\-help\fR] [\fB\-V\fR|\fB\-\-version\fR] [\fIsubcommands\fR]
+.ie \n(.g .ds Aq \(aq
+.el .ds Aq '
+.SH DESCRIPTION
+Fast, featureful, cross\-platform fetching tool written in Rust 
+.PP
+purr is a fast, neofetch\-compatible system information tool. With no arguments
+it prints a neofetch\-style report \(em the same fields, styling, and
+\fB${c1}\fR..\fB${c6}\fR ASCII logo format \(em then exits. Probes run in
+parallel, so a typical run completes in a few milliseconds.
+.PP
+Output is controlled by a TOML configuration file and the options below;
+precedence is defaults, then the config file, then command\-line flags. Use
+\fB\-\-json\fR for machine\-readable output.
+.ie \n(.g .ds Aq \(aq
+.el .ds Aq '
+.SH OPTIONS
+.TP
+\fB\-\-verbose\fR
+Include verbose output or not
+.TP
+\fB\-c\fR, \fB\-\-config\fR \fI<CONFIG>\fR
+Path to a custom config file
+.TP
+\fB\-\-no\-config\fR
+Ignore any config file and start from the built\-in defaults
+.TP
+\fB\-\-all\fR
+Use the all\-probes preset
+.TP
+\fB\-n\fR, \fB\-\-neofetch\fR
+Use the neofetch text renderer
+.TP
+\fB\-\-json\fR
+Emit JSON instead of text
+.TP
+\fB\-\-ascii_distro\fR \fI<DISTRO>\fR
+Force a specific distro logo (e.g. "arch")
+.TP
+\fB\-\-ascii_colors\fR \fI<LIST>\fR
+Override logo colours (space/comma list, e.g. "4 6 1")
+.TP
+\fB\-\-no_ascii_bold\fR
+Don\*(Aqt bold the logo
+.TP
+\fB\-L\fR, \fB\-\-logo\fR
+Show only the logo (no info)
+.TP
+\fB\-\-off\fR
+Hide the logo
+.TP
+\fB\-\-backend\fR \fI<BACKEND>\fR
+Logo backend: ascii or kitty
+.TP
+\fB\-\-source\fR \fI<PATH>\fR
+Image source (PNG) for the kitty backend
+.TP
+\fB\-\-separator\fR \fI<STR>\fR
+Separator between labels and values
+.TP
+\fB\-\-no_bold\fR
+Don\*(Aqt bold the title and labels
+.TP
+\fB\-\-underline_char\fR \fI<CHAR>\fR
+Character used for the title underline
+.TP
+\fB\-\-title_fqdn\fR
+Show the fully\-qualified hostname
+.TP
+\fB\-\-colors\fR \fI<LIST>\fR
+Override text colours (space/comma list)
+.TP
+\fB\-\-stdout\fR
+Pipe\-friendly output: disable colour
+.TP
+\fB\-\-memory_unit\fR \fI<UNIT>\fR
+Memory unit: kib, mib, or gib
+.TP
+\fB\-\-uptime_shorthand\fR \fI<MODE>\fR
+Uptime format: on, tiny, or off
+.TP
+\fB\-\-cpu_cores\fR \fI<MODE>\fR
+CPU cores: logical, physical, or off
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Print help
+.TP
+\fB\-V\fR, \fB\-\-version\fR
+Print version
+.ie \n(.g .ds Aq \(aq
+.el .ds Aq '
+.SH SUBCOMMANDS
+.TP
+purr\-generate(1)
+Generate a new config file
+.TP
+purr\-config\-path(1)
+Return default config file path
+.TP
+purr\-help(1)
+Print this message or the help of the given subcommand(s)
+.SH EXAMPLES
+.TP
+.B purr
+Print the default neofetch\-style report.
+.TP
+.B purr \-\-all
+Show every available probe.
+.TP
+.B purr \-\-json
+Emit the probe results as JSON for scripting.
+.TP
+.B purr \-L
+Print only the logo, with no system information.
+.TP
+.B purr \-\-ascii_distro arch \-\-ascii_colors \(dq4 6 1\(dq
+Force the Arch logo and recolour it.
+.TP
+.B purr generate \-\-neofetch
+Write a starter neofetch\-style config file.
+.SH ENVIRONMENT
+.TP
+.B NO_COLOR
+When set to a non\-empty value, disables all colour output
+(https://no\-color.org). The \fB\-\-stdout\fR flag sets this automatically.
+.TP
+.B RUST_LOG
+Controls log verbosity, e.g. \fBRUST_LOG=debug\fR. Passing \fB\-\-verbose\fR
+raises the level to trace.
+.SH FILES
+.TP
+.I config.toml
+Configuration file, read from the platform configuration directory
+(precedence: defaults < config file < CLI flags). Run \fBpurr config\-path\fR
+to print its resolved path, or \fBpurr generate\fR to write a starter file.
+.ie \n(.g .ds Aq \(aq
+.el .ds Aq '
+.SH VERSION
+v0.1.0
+.ie \n(.g .ds Aq \(aq
+.el .ds Aq '
+.SH AUTHORS
+justin13888 <20733699+justin13888@users.noreply.github.com>

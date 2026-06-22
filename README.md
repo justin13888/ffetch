@@ -108,7 +108,8 @@ Run `purr` with no arguments for the neofetch-style output. Useful flags:
 | `--backend kitty --source <img.png>` | Kitty image backend |
 | `--stdout` | plain output (honours `NO_COLOR`) |
 
-Run `purr --help` for the full list.
+Run `purr --help` for the full list, or `man purr` for the manual page (also
+checked in at [`man/purr.1`](man/purr.1) and bundled in release archives).
 
 ### Configuration
 
@@ -166,7 +167,12 @@ mise run fmt          # format code in place
 mise run lint         # auto-fix clippy lints, then verify
 mise run fmt-check    # verify formatting without modifying files
 mise run lint-check   # verify clippy lints without modifying files
+mise run man          # regenerate man/purr.1 from the CLI definition
 ```
+
+The man page (`man/purr.1`) is generated from the `clap` CLI by
+`examples/gen-man.rs`, so it never drifts from `purr --help`. Run `mise run man`
+after changing any flags (`mise run man-check` verifies it is in sync).
 
 ### Git Hooks
 
