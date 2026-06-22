@@ -2,120 +2,16 @@
 #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
 compile_error!("This crate is only supported on Linux, macOS, and Windows.");
 
-use std::path::PathBuf;
-
-use clap::{ArgGroup, Parser, Subcommand};
+use clap::Parser;
 use tracing::{Level, debug, info, info_span};
 
 use purr_lib::{
+    cli::{Cli, Command},
     config::{Config, RendererOverride},
     renderer::{json::JsonRenderer, neofetch::NeofetchRenderer},
 };
 
 // TODO: Include 'libmacchina' version in version command
-#[derive(Parser, Debug)]
-#[command(name = "purr", version = purr_lib::version::LONG_VERSION, about, long_about = None)]
-#[clap(group = ArgGroup::new("renderer").multiple(false).required(false))]
-struct Cli {
-    /// Include verbose output or not.
-    #[clap(long, global = true, default_value = "false")]
-    verbose: bool,
-
-    /// Path to a custom config file.
-    #[clap(short, long)]
-    config: Option<PathBuf>,
-    /// Ignore any config file and start from the built-in defaults.
-    #[clap(long)]
-    no_config: bool,
-    /// Use the all-probes preset.
-    #[clap(long)]
-    all: bool,
-
-    /// Use the neofetch text renderer.
-    #[clap(short, long, group = "renderer")]
-    neofetch: bool,
-    /// Emit JSON instead of text.
-    #[clap(long, group = "renderer")]
-    json: bool,
-
-    // ── Logo ──
-    /// Force a specific distro logo (e.g. "arch").
-    #[clap(long = "ascii_distro", value_name = "DISTRO")]
-    ascii_distro: Option<String>,
-    /// Override logo colours (space/comma list, e.g. "4 6 1").
-    #[clap(long = "ascii_colors", value_name = "LIST")]
-    ascii_colors: Option<String>,
-    /// Don't bold the logo.
-    #[clap(long = "no_ascii_bold")]
-    no_ascii_bold: bool,
-    /// Show only the logo (no info).
-    #[clap(short = 'L', long)]
-    logo: bool,
-    /// Hide the logo.
-    #[clap(long)]
-    off: bool,
-    /// Logo backend: ascii or kitty.
-    #[clap(long, value_name = "BACKEND")]
-    backend: Option<String>,
-    /// Image source (PNG) for the kitty backend.
-    #[clap(long, value_name = "PATH")]
-    source: Option<PathBuf>,
-
-    // ── Text ──
-    /// Separator between labels and values.
-    #[clap(long, value_name = "STR")]
-    separator: Option<String>,
-    /// Don't bold the title and labels.
-    #[clap(long = "no_bold")]
-    no_bold: bool,
-    /// Character used for the title underline.
-    #[clap(long = "underline_char", value_name = "CHAR")]
-    underline_char: Option<String>,
-    /// Show the fully-qualified hostname.
-    #[clap(long = "title_fqdn")]
-    title_fqdn: bool,
-    /// Override text colours (space/comma list).
-    #[clap(long, value_name = "LIST")]
-    colors: Option<String>,
-    /// Pipe-friendly output: disable colour.
-    #[clap(long)]
-    stdout: bool,
-
-    // ── Per-field ──
-    /// Memory unit: kib, mib, or gib.
-    #[clap(long = "memory_unit", value_name = "UNIT")]
-    memory_unit: Option<String>,
-    /// Uptime format: on, tiny, or off.
-    #[clap(long = "uptime_shorthand", value_name = "MODE")]
-    uptime_shorthand: Option<String>,
-    /// CPU cores: logical, physical, or off.
-    #[clap(long = "cpu_cores", value_name = "MODE")]
-    cpu_cores: Option<String>,
-
-    // Command subcommands
-    #[clap(subcommand)]
-    command: Option<Command>,
-}
-
-#[derive(Subcommand, Debug)]
-#[clap(group = ArgGroup::new("preset").multiple(false).required(false))]
-enum Command {
-    /// Generate a new config file
-    Generate(GenerateCommandArgs),
-    /// Return default config file path
-    ConfigPath,
-}
-
-#[derive(Parser, Debug)]
-struct GenerateCommandArgs {
-    /// Generate neofetch preset.
-    #[clap(short, long, group = "preset")]
-    neofetch: bool,
-
-    /// Use all default presets.
-    #[clap(long)]
-    all: bool,
-}
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Parse CLI arguments
