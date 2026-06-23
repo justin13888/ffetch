@@ -511,8 +511,6 @@ impl From<ProbeType> for ProbeResultFunction {
         use libmacchina::traits::NetworkReadout as _;
         #[cfg(not(target_os = "macos"))]
         use libmacchina::traits::PackageReadout as _;
-        #[cfg(not(target_os = "macos"))]
-        use libmacchina::traits::ProductReadout as _;
 
         match probe_type {
             ProbeType::Host => Box::new(|| {
@@ -556,15 +554,27 @@ impl From<ProbeType> for ProbeResultFunction {
                 {
                     Ok(ProbeResultValue::Single(ProbeValue::Model(
                         String::new(),
-                        sysctl("hw.model")?,
+                        clean_model(&sysctl("hw.model")?),
                     )))
                 }
+                // neofetch sources the model from DMI sysfs — preferring the
+                // motherboard (`board_vendor`/`board_name`) over the chassis
+                // product, then strips dummy OEM placeholders. libmacchina only
+                // exposes the product name, so read the sysfs files directly and
+                // fall back to libmacchina when they're unavailable.
                 #[cfg(not(target_os = "macos"))]
                 {
-                    Ok(ProbeResultValue::Single(ProbeValue::Model(
-                        product_readout().vendor()?,
-                        product_readout().product()?,
-                    )))
+                    #[cfg(target_os = "linux")]
+                    let raw = read_dmi_model().or_else(libmacchina_model);
+                    #[cfg(not(target_os = "linux"))]
+                    let raw = libmacchina_model();
+
+                    match raw.map(|s| clean_model(&s)).filter(|s| !s.is_empty()) {
+                        Some(model) => {
+                            Ok(ProbeResultValue::Single(ProbeValue::Model(String::new(), model)))
+                        }
+                        None => Err(ProbeError::MetricsUnavailable),
+                    }
                 }
             }),
             ProbeType::Kernel => Box::new(|| {
@@ -1053,6 +1063,83 @@ impl ProbeValue {
 /// Format a raw CPU model into neofetch's CPU line, honoring [`CpuOptions`]:
 /// cruft stripped, optional brand, core count, and max clock, e.g.
 /// "AMD Ryzen 7 7800X3D (16) @ 5.053GHz".
+/// Read the host model from DMI sysfs in neofetch's order: motherboard
+/// (`board_vendor` + `board_name`) first, then the chassis product
+/// (`product_name` + `product_version`), then device-tree / `/tmp/sysinfo`.
+/// Returns the raw (un-cleaned) string, or `None` when no source exists.
+#[cfg(target_os = "linux")]
+fn read_dmi_model() -> Option<String> {
+    fn read(path: &str) -> Option<String> {
+        std::fs::read_to_string(path)
+            .ok()
+            .map(|s| s.trim().to_string())
+    }
+    // neofetch keys off file existence of the pair, then joins the two contents
+    // with a space (either may be empty; `clean_model` trims the result).
+    let pair = |a: &str, b: &str| -> Option<String> {
+        let base = "/sys/devices/virtual/dmi/id";
+        let va = read(&format!("{base}/{a}"));
+        let vb = read(&format!("{base}/{b}"));
+        (va.is_some() || vb.is_some())
+            .then(|| format!("{} {}", va.unwrap_or_default(), vb.unwrap_or_default()))
+    };
+    pair("board_vendor", "board_name")
+        .or_else(|| pair("product_name", "product_version"))
+        .or_else(|| read("/sys/firmware/devicetree/base/model"))
+        .or_else(|| read("/tmp/sysinfo/model"))
+}
+
+/// libmacchina fallback for the host model (`vendor` + `product`), used when DMI
+/// sysfs is unavailable (e.g. on Windows).
+#[cfg(not(target_os = "macos"))]
+fn libmacchina_model() -> Option<String> {
+    use libmacchina::traits::ProductReadout as _;
+    let pr = product_readout();
+    match (pr.vendor().ok(), pr.product().ok()) {
+        (Some(v), Some(p)) => Some(format!("{v} {p}")),
+        (Some(s), None) | (None, Some(s)) => Some(s),
+        (None, None) => None,
+    }
+}
+
+/// Strip the dummy OEM placeholder strings neofetch removes from model strings
+/// (`To be filled by O.E.M.`, `System Product Name`, `Default string`, the `�`
+/// replacement char, …) and collapse whitespace. Wraps known VM identifiers
+/// (`Standard PC…` → `KVM/QEMU (…)`, `OpenBSD…` → `vmm (…)`). An empty result
+/// means the string was entirely placeholder text.
+fn clean_model(model: &str) -> String {
+    let mut s = model.to_string();
+    s = s.replace("To be filled by O.E.M.", "");
+    // Greedy `*` tails: truncate at the marker.
+    for marker in ["To Be Filled", "OEM"] {
+        if let Some(i) = s.find(marker) {
+            s.truncate(i);
+        }
+    }
+    for pat in [
+        "Not Applicable",
+        "System Product Name",
+        "System Version",
+        "Undefined",
+        "Default string",
+        "Not Specified",
+        "Type1ProductConfigId",
+        "INVALID",
+        "All Series",
+        "\u{fffd}",
+    ] {
+        s = s.replace(pat, "");
+    }
+    let s = s.split_whitespace().collect::<Vec<_>>().join(" ");
+    if s.starts_with("Standard PC") {
+        return format!("KVM/QEMU ({s})");
+    }
+    if s.starts_with("OpenBSD") {
+        return format!("vmm ({s})");
+    }
+    s
+}
+
 pub fn format_cpu(model: &str, opts: &CpuOptions) -> String {
     use libmacchina::traits::GeneralReadout as _;
 
@@ -1475,8 +1562,28 @@ pub fn song_probe_fn(_opts: SongOptions) -> ProbeResultFunction {
 
 #[cfg(test)]
 mod tests {
-    use super::{clean_cpu_model, format_cpu};
+    use super::{clean_cpu_model, clean_model, format_cpu};
     use crate::config::{CoresMode, CpuOptions};
+
+    #[test]
+    fn model_dmi_and_oem_cleanup() {
+        // Real motherboard string passes through (whitespace collapsed).
+        assert_eq!(
+            clean_model("Micro-Star International Co., Ltd. MEG X870E GODLIKE (MS-7E48)"),
+            "Micro-Star International Co., Ltd. MEG X870E GODLIKE (MS-7E48)"
+        );
+        // Dummy OEM placeholders are removed.
+        assert_eq!(clean_model("System manufacturer System Product Name"), "System manufacturer");
+        assert_eq!(clean_model("To be filled by O.E.M."), "");
+        assert_eq!(clean_model("Default string Default string"), "");
+        // A bare vendor with an empty product (trailing space from the join).
+        assert_eq!(clean_model("Dell Inc. "), "Dell Inc.");
+        // QEMU / KVM identifier wrapping.
+        assert_eq!(
+            clean_model("Standard PC (Q35 + ICH9, 2009)"),
+            "KVM/QEMU (Standard PC (Q35 + ICH9, 2009))"
+        );
+    }
 
     #[test]
     fn cpu_brand_off_drops_leading_token() {
