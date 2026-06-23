@@ -58,4 +58,14 @@ run = "convco check origin/master..HEAD"
 [tasks.commit-msg-check]
 description = "Lint a single commit message file against Conventional Commits (used by the commit-msg hook)"
 usage = 'arg "<file>" help="Path to the commit message file"'
-run = 'convco check --from-stdin --strip < "${usage_file}"'
+# Skip auto-generated merge commits (e.g. `Merge branch 'master' of ...`). convco's
+# range check excludes merge commits by parent count, but `--from-stdin` can't see the
+# parents, so detect them by subject here. The grep picks the first non-blank,
+# non-comment line to mirror what `--strip` feeds convco.
+run = '''
+subject=$(grep -m1 -vE '^[[:space:]]*(#.*)?$' "${usage_file}" || true)
+case "$subject" in
+  "Merge "*) exit 0 ;;
+esac
+convco check --from-stdin --strip < "${usage_file}"
+'''
