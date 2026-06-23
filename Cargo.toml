@@ -75,6 +75,8 @@ tracing-subscriber = { version = "0.3.22", features = [
 [dev-dependencies]
 # Renders `man/purr.1` from the clap CLI; see `examples/gen-man.rs`.
 clap_mangen = "0.2.30"
+# Renders the static shell completions in `completions/`; see `examples/gen-completions.rs`.
+clap_complete = "4.5"
 criterion = { version = "0.8.2", features = ["html_reports"] }
 
 [profile.release]

@@ -171,12 +171,15 @@ mise run lint         # auto-fix clippy lints, then verify
 mise run fmt-check    # verify formatting without modifying files
 mise run lint-check   # verify clippy lints without modifying files
 mise run man          # regenerate man/purr.1 from the CLI definition
+mise run completions  # regenerate shell completions in completions/
 mise run svg          # regenerate assets/purr.svg demo screenshot (requires freeze)
 ```
 
-The man page (`man/purr.1`) is generated from the `clap` CLI by
-`examples/gen-man.rs`, so it never drifts from `purr --help`. Run `mise run man`
-after changing any flags (`mise run man-check` verifies it is in sync).
+The man page (`man/purr.1`) and the shell completions (`completions/`) are
+generated from the `clap` CLI by `examples/gen-man.rs` and
+`examples/gen-completions.rs`, so they never drift from `purr --help`. Run
+`mise run man` and `mise run completions` after changing any flags
+(`mise run man-check` / `mise run completions-check` verify they are in sync).
 
 ### Git Hooks
 

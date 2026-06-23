@@ -1,0 +1,154 @@
+#compdef purr
+
+autoload -U is-at-least
+
+_purr() {
+    typeset -A opt_args
+    typeset -a _arguments_options
+    local ret=1
+
+    if is-at-least 5.2; then
+        _arguments_options=(-s -S -C)
+    else
+        _arguments_options=(-s -C)
+    fi
+
+    local context curcontext="$curcontext" state line
+    _arguments "${_arguments_options[@]}" : \
+'-c+[Path to a custom config file]:CONFIG:_files' \
+'--config=[Path to a custom config file]:CONFIG:_files' \
+'--ascii_distro=[Force a specific distro logo (e.g. "arch")]:DISTRO:_default' \
+'--ascii_colors=[Override logo colours (space/comma list, e.g. "4 6 1")]:LIST:_default' \
+'--backend=[Logo backend\: ascii or kitty]:BACKEND:_default' \
+'--source=[Image source (PNG) for the kitty backend]:PATH:_files' \
+'--separator=[Separator between labels and values]:STR:_default' \
+'--underline_char=[Character used for the title underline]:CHAR:_default' \
+'--colors=[Override text colours (space/comma list)]:LIST:_default' \
+'--memory_unit=[Memory unit\: kib, mib, or gib]:UNIT:_default' \
+'--uptime_shorthand=[Uptime format\: on, tiny, or off]:MODE:_default' \
+'--cpu_cores=[CPU cores\: logical, physical, or off]:MODE:_default' \
+'--verbose[Include verbose output or not]' \
+'--no-config[Ignore any config file and start from the built-in defaults]' \
+'--all[Use the all-probes preset]' \
+'-n[Use the neofetch text renderer]' \
+'--neofetch[Use the neofetch text renderer]' \
+'--json[Emit JSON instead of text]' \
+'--no_ascii_bold[Don'\''t bold the logo]' \
+'-L[Show only the logo (no info)]' \
+'--logo[Show only the logo (no info)]' \
+'--off[Hide the logo]' \
+'--no_bold[Don'\''t bold the title and labels]' \
+'--title_fqdn[Show the fully-qualified hostname]' \
+'--stdout[Pipe-friendly output\: disable colour]' \
+'-h[Print help]' \
+'--help[Print help]' \
+'-V[Print version]' \
+'--version[Print version]' \
+":: :_purr_commands" \
+"*::: :->purr" \
+&& ret=0
+    case $state in
+    (purr)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:purr-command-$line[1]:"
+        case $line[1] in
+            (generate)
+_arguments "${_arguments_options[@]}" : \
+'-n[Generate neofetch preset]' \
+'--neofetch[Generate neofetch preset]' \
+'--all[Use all default presets]' \
+'--verbose[Include verbose output or not]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(config-path)
+_arguments "${_arguments_options[@]}" : \
+'--verbose[Include verbose output or not]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" : \
+":: :_purr__subcmd__help_commands" \
+"*::: :->help" \
+&& ret=0
+
+    case $state in
+    (help)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:purr-help-command-$line[1]:"
+        case $line[1] in
+            (generate)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(config-path)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+        esac
+    ;;
+esac
+}
+
+(( $+functions[_purr_commands] )) ||
+_purr_commands() {
+    local commands; commands=(
+'generate:Generate a new config file' \
+'config-path:Return default config file path' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'purr commands' commands "$@"
+}
+(( $+functions[_purr__subcmd__config-path_commands] )) ||
+_purr__subcmd__config-path_commands() {
+    local commands; commands=()
+    _describe -t commands 'purr config-path commands' commands "$@"
+}
+(( $+functions[_purr__subcmd__generate_commands] )) ||
+_purr__subcmd__generate_commands() {
+    local commands; commands=()
+    _describe -t commands 'purr generate commands' commands "$@"
+}
+(( $+functions[_purr__subcmd__help_commands] )) ||
+_purr__subcmd__help_commands() {
+    local commands; commands=(
+'generate:Generate a new config file' \
+'config-path:Return default config file path' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'purr help commands' commands "$@"
+}
+(( $+functions[_purr__subcmd__help__subcmd__config-path_commands] )) ||
+_purr__subcmd__help__subcmd__config-path_commands() {
+    local commands; commands=()
+    _describe -t commands 'purr help config-path commands' commands "$@"
+}
+(( $+functions[_purr__subcmd__help__subcmd__generate_commands] )) ||
+_purr__subcmd__help__subcmd__generate_commands() {
+    local commands; commands=()
+    _describe -t commands 'purr help generate commands' commands "$@"
+}
+(( $+functions[_purr__subcmd__help__subcmd__help_commands] )) ||
+_purr__subcmd__help__subcmd__help_commands() {
+    local commands; commands=()
+    _describe -t commands 'purr help help commands' commands "$@"
+}
+
+if [ "$funcstack[1]" = "_purr" ]; then
+    _purr "$@"
+else
+    compdef _purr purr
+fi
