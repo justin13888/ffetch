@@ -712,14 +712,32 @@ impl ShellOptions {
 }
 
 impl DeOptions {
-    /// Render the desktop-environment `name`, optionally with `version`.
+    /// Render the desktop-environment `name`, optionally with `version`, plus a
+    /// trailing " (Wayland)" on Wayland sessions (matching neofetch:
+    /// `[[ $de && $WAYLAND_DISPLAY ]] && de+=" (Wayland)"`).
     pub fn format(&self, name: &str, version: Option<&str>) -> String {
+        self.format_inner(
+            name,
+            version,
+            std::env::var_os("WAYLAND_DISPLAY").is_some(),
+        )
+    }
+
+    fn format_inner(&self, name: &str, version: Option<&str>, wayland: bool) -> String {
+        if name.is_empty() {
+            return String::new();
+        }
         let mut s = name.to_string();
         if self.version
             && let Some(v) = version
         {
             s.push(' ');
             s.push_str(v);
+        }
+        // The " (Wayland)" suffix comes after the version, like neofetch. Guard
+        // against double-appending if the upstream name already carries it.
+        if wayland && !s.contains("(Wayland)") {
+            s.push_str(" (Wayland)");
         }
         s
     }
@@ -1122,6 +1140,32 @@ probes = [
         // All of day/hour/min zero -> seconds fallback.
         assert_eq!(on.format(45), "45 secs");
         assert_eq!(off.format(45), "45 seconds");
+    }
+
+    #[test]
+    fn de_wayland_suffix() {
+        let de = DeOptions {
+            version: true,
+            ..Default::default()
+        };
+        // Wayland appends after the version; X11 / non-Wayland does not.
+        assert_eq!(
+            de.format_inner("GNOME", Some("50.2"), true),
+            "GNOME 50.2 (Wayland)"
+        );
+        assert_eq!(de.format_inner("GNOME", Some("50.2"), false), "GNOME 50.2");
+        // Appended even when the version is hidden, and never doubled.
+        let no_ver = DeOptions {
+            version: false,
+            ..Default::default()
+        };
+        assert_eq!(no_ver.format_inner("KDE", Some("6.1"), true), "KDE (Wayland)");
+        assert_eq!(
+            de.format_inner("GNOME (Wayland)", None, true),
+            "GNOME (Wayland)"
+        );
+        // Empty DE stays empty (renderer omits the line).
+        assert_eq!(de.format_inner("", None, true), "");
     }
 
     #[test]
