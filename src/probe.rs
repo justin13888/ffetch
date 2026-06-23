@@ -8,13 +8,13 @@ use std::{
 
 use tracing::{debug_span, instrument};
 
+#[cfg(not(target_os = "macos"))]
+use libmacchina::traits::{ShellFormat, ShellKind};
 use libmacchina::{
     BatteryReadout, GeneralReadout, KernelReadout, MemoryReadout, NetworkReadout, PackageReadout,
     ProductReadout,
     traits::{BatteryState, ReadoutError},
 };
-#[cfg(not(target_os = "macos"))]
-use libmacchina::traits::{ShellFormat, ShellKind};
 use serde::{Deserialize, Serialize};
 use sysinfo::{Disks, Users};
 use thiserror::Error;
@@ -607,9 +607,10 @@ impl From<ProbeType> for ProbeResultFunction {
                     let raw = libmacchina_model();
 
                     match raw.map(|s| clean_model(&s)).filter(|s| !s.is_empty()) {
-                        Some(model) => {
-                            Ok(ProbeResultValue::Single(ProbeValue::Model(String::new(), model)))
-                        }
+                        Some(model) => Ok(ProbeResultValue::Single(ProbeValue::Model(
+                            String::new(),
+                            model,
+                        ))),
                         None => Err(ProbeError::MetricsUnavailable),
                     }
                 }
@@ -644,8 +645,8 @@ impl From<ProbeType> for ProbeResultFunction {
                 // `$SHELL` like neofetch (`${SHELL##*/}`).
                 #[cfg(target_os = "macos")]
                 let name = {
-                    let shell = std::env::var("SHELL")
-                        .map_err(|_| ProbeError::MetricsUnavailable)?;
+                    let shell =
+                        std::env::var("SHELL").map_err(|_| ProbeError::MetricsUnavailable)?;
                     shell.rsplit('/').next().unwrap_or(&shell).to_string()
                 };
                 #[cfg(not(target_os = "macos"))]
@@ -1610,7 +1611,10 @@ mod tests {
             "Micro-Star International Co., Ltd. MEG X870E GODLIKE (MS-7E48)"
         );
         // Dummy OEM placeholders are removed.
-        assert_eq!(clean_model("System manufacturer System Product Name"), "System manufacturer");
+        assert_eq!(
+            clean_model("System manufacturer System Product Name"),
+            "System manufacturer"
+        );
         assert_eq!(clean_model("To be filled by O.E.M."), "");
         assert_eq!(clean_model("Default string Default string"), "");
         // A bare vendor with an empty product (trailing space from the join).
@@ -1690,9 +1694,7 @@ mod tests {
             "AMD Ryzen 9 5900X"
         );
         assert_eq!(
-            clean_cpu_model(
-                "AMD A10-7850K APU with Radeon(TM) R7 Graphics, 4 Compute Cores 2C+2G"
-            ),
+            clean_cpu_model("AMD A10-7850K APU with Radeon(TM) R7 Graphics, 4 Compute Cores 2C+2G"),
             "AMD A10-7850K APU 2C+2G"
         );
     }
@@ -1700,7 +1702,10 @@ mod tests {
     #[test]
     fn leaves_clean_names_untouched() {
         assert_eq!(clean_cpu_model("Apple M1"), "Apple M1");
-        assert_eq!(clean_cpu_model("AMD Ryzen 7 7800X3D"), "AMD Ryzen 7 7800X3D");
+        assert_eq!(
+            clean_cpu_model("AMD Ryzen 7 7800X3D"),
+            "AMD Ryzen 7 7800X3D"
+        );
     }
 
     use super::{

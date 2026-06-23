@@ -716,11 +716,7 @@ impl DeOptions {
     /// trailing " (Wayland)" on Wayland sessions (matching neofetch:
     /// `[[ $de && $WAYLAND_DISPLAY ]] && de+=" (Wayland)"`).
     pub fn format(&self, name: &str, version: Option<&str>) -> String {
-        self.format_inner(
-            name,
-            version,
-            std::env::var_os("WAYLAND_DISPLAY").is_some(),
-        )
+        self.format_inner(name, version, std::env::var_os("WAYLAND_DISPLAY").is_some())
     }
 
     fn format_inner(&self, name: &str, version: Option<&str>, wayland: bool) -> String {
@@ -1159,7 +1155,10 @@ probes = [
             version: false,
             ..Default::default()
         };
-        assert_eq!(no_ver.format_inner("KDE", Some("6.1"), true), "KDE (Wayland)");
+        assert_eq!(
+            no_ver.format_inner("KDE", Some("6.1"), true),
+            "KDE (Wayland)"
+        );
         assert_eq!(
             de.format_inner("GNOME (Wayland)", None, true),
             "GNOME (Wayland)"
