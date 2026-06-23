@@ -316,6 +316,29 @@ fn parse_ini_key(path: &std::path::Path, key: &str) -> Result<String, ProbeError
     Err(ProbeError::MetricsUnavailable)
 }
 
+/// Resolve a GTK theme/icon setting and append neofetch's `[GTK…]` version tag
+/// (`get_style` with the default `gtk_shorthand=off`). GNOME-style DEs expose a
+/// single value via gsettings that neofetch treats as both GTK2 and GTK3
+/// (`[GTK2/3]`); the gtk-3.0 ini fallback yields `[GTK3]`.
+fn gtk_style(gsettings_key: &str, ini_key: &str) -> Result<String, ProbeError> {
+    if let Ok(v) = gsettings_get("org.gnome.desktop.interface", gsettings_key) {
+        return Ok(with_gtk_tag(&v, true));
+    }
+    let home = std::env::var("HOME").map_err(|_| ProbeError::MetricsUnavailable)?;
+    let v = parse_ini_key(
+        std::path::Path::new(&format!("{home}/.config/gtk-3.0/settings.ini")),
+        ini_key,
+    )?;
+    Ok(with_gtk_tag(&v, false))
+}
+
+/// Append the GTK version tag: `[GTK2/3]` when the value came from gsettings,
+/// else `[GTK3]`.
+fn with_gtk_tag(value: &str, from_gsettings: bool) -> String {
+    let tag = if from_gsettings { "[GTK2/3]" } else { "[GTK3]" };
+    format!("{value} {tag}")
+}
+
 #[instrument(level = "debug")]
 fn detect_terminal_font() -> Result<String, ProbeError> {
     use libmacchina::traits::GeneralReadout as _;
@@ -679,31 +702,13 @@ impl From<ProbeType> for ProbeResultFunction {
                 }
             }),
             ProbeType::Theme => Box::new(|| {
-                // GNOME: query GTK theme via gsettings
-                // Fallback: parse GTK3 settings.ini
-                let theme =
-                    gsettings_get("org.gnome.desktop.interface", "gtk-theme").or_else(|_| {
-                        let home =
-                            std::env::var("HOME").map_err(|_| ProbeError::MetricsUnavailable)?;
-                        parse_ini_key(
-                            std::path::Path::new(&format!("{}/.config/gtk-3.0/settings.ini", home)),
-                            "gtk-theme-name",
-                        )
-                    })?;
+                // GTK theme via gsettings (GNOME), falling back to the gtk-3.0
+                // settings.ini, with neofetch's `[GTK2/3]`/`[GTK3]` tag.
+                let theme = gtk_style("gtk-theme", "gtk-theme-name")?;
                 Ok(ProbeResultValue::Single(ProbeValue::Theme(theme)))
             }),
             ProbeType::Icons => Box::new(|| {
-                // GNOME: query icon theme via gsettings
-                // Fallback: parse GTK3 settings.ini
-                let icons =
-                    gsettings_get("org.gnome.desktop.interface", "icon-theme").or_else(|_| {
-                        let home =
-                            std::env::var("HOME").map_err(|_| ProbeError::MetricsUnavailable)?;
-                        parse_ini_key(
-                            std::path::Path::new(&format!("{}/.config/gtk-3.0/settings.ini", home)),
-                            "gtk-icon-theme-name",
-                        )
-                    })?;
+                let icons = gtk_style("icon-theme", "gtk-icon-theme-name")?;
                 Ok(ProbeResultValue::Single(ProbeValue::Icons(icons)))
             }),
             ProbeType::Cursor => Box::new(|| Err(ProbeError::Unimplemented)),
@@ -1562,8 +1567,15 @@ pub fn song_probe_fn(_opts: SongOptions) -> ProbeResultFunction {
 
 #[cfg(test)]
 mod tests {
-    use super::{clean_cpu_model, clean_model, format_cpu};
+    use super::{clean_cpu_model, clean_model, format_cpu, with_gtk_tag};
     use crate::config::{CoresMode, CpuOptions};
+
+    #[test]
+    fn gtk_theme_tags() {
+        // gsettings source -> [GTK2/3] (GNOME), ini fallback -> [GTK3].
+        assert_eq!(with_gtk_tag("Adwaita", true), "Adwaita [GTK2/3]");
+        assert_eq!(with_gtk_tag("Arc-Dark", false), "Arc-Dark [GTK3]");
+    }
 
     #[test]
     fn model_dmi_and_oem_cleanup() {
