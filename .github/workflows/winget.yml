@@ -1,0 +1,50 @@
+# Submits purr to the Windows Package Manager (winget) on each stable release by
+# opening a pull request against microsoft/winget-pkgs.
+#
+# It consumes the `purrfetch-x86_64-pc-windows-msvc.msi` asset that cargo-dist
+# attaches to the GitHub Release (enabled via `[workspace.metadata.dist]
+# installers = [.., "msi"]`).
+#
+# One-time manual setup (see packaging/README.md):
+#   - fork microsoft/winget-pkgs under the publishing account
+#   - create a classic PAT with `public_repo` scope and store it as the
+#     repository secret WINGET_TOKEN
+# Until WINGET_TOKEN is set the job skips itself, so releases never fail because
+# of winget.
+name: Submit to winget
+
+on:
+  release:
+    # `released` fires only for published, non-prerelease, non-draft releases.
+    types: [released]
+  workflow_dispatch:
+    inputs:
+      release-tag:
+        description: "Release tag to submit (e.g. v1.0.0)"
+        required: true
+
+jobs:
+  winget:
+    name: Submit purr to winget-pkgs
+    runs-on: ubuntu-latest
+    # Don't run on forks.
+    if: ${{ github.repository_owner == 'justin13888' }}
+    steps:
+      - name: Check for WINGET_TOKEN
+        id: guard
+        env:
+          WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
+        run: |
+          if [ -z "$WINGET_TOKEN" ]; then
+            echo "WINGET_TOKEN is not set; skipping winget submission." >&2
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Submit to winget-pkgs
+        if: ${{ steps.guard.outputs.skip != 'true' }}
+        uses: vedantmgoyal9/winget-releaser@v2
+        with:
+          identifier: justin13888.purr
+          installers-regex: '\.msi$'
+          release-tag: ${{ github.event.inputs.release-tag || github.event.release.tag_name }}
+          token: ${{ secrets.WINGET_TOKEN }}
