@@ -1,0 +1,37 @@
+# Maintainer: justin13888 <20733699+justin13888@users.noreply.github.com>
+pkgname=purr-bin
+pkgver=1.0.0
+pkgrel=1
+pkgdesc="Fast, neofetch-compatible system information tool (prebuilt binary)"
+arch=('x86_64' 'aarch64')
+url="https://github.com/justin13888/purrfetch"
+license=('MIT')
+provides=('purr')
+conflicts=('purr')
+# The release tarball ships an already-optimised binary with no debug info.
+options=('!strip' '!debug')
+source_x86_64=("purr-$pkgver-x86_64.tar.xz::$url/releases/download/v$pkgver/purrfetch-x86_64-unknown-linux-gnu.tar.xz")
+source_aarch64=("purr-$pkgver-aarch64.tar.xz::$url/releases/download/v$pkgver/purrfetch-aarch64-unknown-linux-gnu.tar.xz")
+# namcap flags the literal arch above; it is intentional — the release assets are
+# named by full target triple, which differs from $CARCH (x86_64-unknown-linux-gnu
+# vs x86_64). Arch-specific source arrays are the correct idiom for -bin packages.
+# Real checksums are filled per-release by the deploy workflow (updpkgsums);
+# SKIP keeps the committed template buildable.
+sha256sums_x86_64=('SKIP')
+sha256sums_aarch64=('SKIP')
+
+package() {
+	local _target
+	case "$CARCH" in
+		x86_64) _target="x86_64-unknown-linux-gnu" ;;
+		aarch64) _target="aarch64-unknown-linux-gnu" ;;
+	esac
+	cd "$srcdir/purrfetch-$_target"
+
+	install -Dm755 purr "$pkgdir/usr/bin/purr"
+	install -Dm644 purr.1 "$pkgdir/usr/share/man/man1/purr.1"
+	install -Dm644 completions/purr.bash "$pkgdir/usr/share/bash-completion/completions/purr"
+	install -Dm644 completions/_purr "$pkgdir/usr/share/zsh/site-functions/_purr"
+	install -Dm644 completions/purr.fish "$pkgdir/usr/share/fish/vendor_completions.d/purr.fish"
+	install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}
