@@ -264,7 +264,12 @@ cargo flamegraph --profile profiling -- --all
 
 ## Packaging
 
-<!-- TODO: Include repology widget of all repo version states -->
+Package version across repositories:
+
+[![Packaging status](https://repology.org/badge/vertical-allrepos/purrfetch.svg)](https://repology.org/project/purrfetch/versions)
+
+<!-- Repology may file these packages under `purr` once they propagate; if the
+badge shows "no data", switch the project name in the two URLs above to `purr`. -->
 
 ## FAQ
 
