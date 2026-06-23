@@ -50,34 +50,49 @@ curl --proto '=https' --tlsv1.2 -LsSf https://github.com/justin13888/purrfetch/r
 powershell -ExecutionPolicy Bypass -c "irm https://github.com/justin13888/purrfetch/releases/latest/download/purrfetch-installer.ps1 | iex"
 ```
 
-<!-- ### Alpine Linux -->
+### Alpine Linux
 
-<!-- TODO: Support Alpine -->
+```bash
+apk add purr
+```
+
+Pending acceptance into the Alpine repositories; the [`APKBUILD`](packaging/alpine/APKBUILD) is available to build in the meantime.
 
 ### Arch Linux
 
-Use your favorite AUR helper to install `purr-git` from the AUR.
+Install from the AUR with your favorite helper — `purr-bin` (prebuilt) or `purr-git` (build from source):
 
 ```bash
-paru -S purr-git
+paru -S purr-bin
 ```
 
 ### Debian/Ubuntu and derivatives
 
-<!-- Install .deb? -->
+Download the `.deb` for your architecture from the [latest release](https://github.com/justin13888/purrfetch/releases/latest) and install it:
+
+```bash
+sudo dpkg -i purrfetch_*_amd64.deb
+```
 
 ### Fedora
 
-Install via the COPR repository:
+Install from the [COPR repository](https://copr.fedorainfracloud.org/coprs/justin13888/purr/):
 
 ```bash
 sudo dnf copr enable justin13888/purr
 sudo dnf install purr
 ```
 
-<!-- ### NixOS -->
+Or grab the `.rpm` from the [latest release](https://github.com/justin13888/purrfetch/releases/latest) and run `sudo dnf install ./purrfetch-*.rpm`.
 
-<!-- TODO: Support Nix -->
+### Nix
+
+Run it directly, or install it into your profile (the flake also exposes an overlay and `packages.default`):
+
+```bash
+nix run github:justin13888/purrfetch
+nix profile install github:justin13888/purrfetch
+```
 
 ### Homebrew (macOS & Linux)
 
@@ -85,12 +100,13 @@ sudo dnf install purr
 brew install justin13888/tap/purr
 ```
 
-<!-- ### Winget (Windows)
+### Winget (Windows)
 
 ```powershell
 winget install justin13888.purr
-``` -->
-<!-- TODO: Setup winget -->
+```
+
+> The native packages (Alpine, Arch, Debian/Ubuntu, Fedora, Nix) also install the `man purr` page and bash/zsh/fish shell completions.
 
 ### Git
 
