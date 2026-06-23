@@ -32,6 +32,8 @@ targets = ["aarch64-apple-darwin", "aarch64-unknown-linux-gnu", "x86_64-apple-da
 install-path = "CARGO_HOME"
 # Whether to install an updater program
 install-updater = false
+# Extra files to bundle in every release archive (the man page; regenerate with `mise run man`)
+include = ["man/purr.1"]
 
 [lib]
 name = "purr_lib"
@@ -70,6 +72,8 @@ tracing-subscriber = { version = "0.3.22", features = [
 ] }
 
 [dev-dependencies]
+# Renders `man/purr.1` from the clap CLI; see `examples/gen-man.rs`.
+clap_mangen = "0.2.30"
 criterion = { version = "0.8.2", features = ["html_reports"] }
 
 [profile.release]

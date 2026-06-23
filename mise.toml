@@ -30,6 +30,14 @@ run = "cargo clippy -- -D warnings"
 description = "Run the test suite"
 run = "cargo test"
 
+[tasks.man]
+description = "Regenerate man/purr.1 from the CLI definition"
+run = "cargo run --quiet --example gen-man"
+
+[tasks.man-check]
+description = "Verify man/purr.1 is in sync with the CLI (run `mise run man` if this fails)"
+run = ["cargo run --quiet --example gen-man", "git diff --exit-code -- man/purr.1"]
+
 [tasks.start]
 description = "Build and run purr (forward args: mise run start -- <args>)"
 run = "cargo run --"
