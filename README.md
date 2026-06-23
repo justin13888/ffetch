@@ -5,7 +5,10 @@ Fast, universal, cross-platform fetching tool written in Rust.
 Perfect for sharing your [rice](https://www.reddit.com/r/unixporn/) or showing stats on terminal startup.
 
 <!-- TODO: Build Status -->
-<!-- TODO: Include preview.png -->
+
+<p align="center">
+  <img src="assets/purr.svg" alt="purr output on Fedora, themed Catppuccin Macchiato" width="700">
+</p>
 
 ## Why purr?
 
@@ -168,6 +171,7 @@ mise run lint         # auto-fix clippy lints, then verify
 mise run fmt-check    # verify formatting without modifying files
 mise run lint-check   # verify clippy lints without modifying files
 mise run man          # regenerate man/purr.1 from the CLI definition
+mise run svg          # regenerate assets/purr.svg demo screenshot (requires freeze)
 ```
 
 The man page (`man/purr.1`) is generated from the `clap` CLI by

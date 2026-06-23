@@ -3,6 +3,7 @@
 [tools]
 hk = "1.48.0"             # git hooks (see hk.pkl)
 "cargo:convco" = "0.6.4"  # Conventional Commits linter (built from source; not in mise's registry)
+"aqua:charmbracelet/freeze" = "0.2.2"  # renders the README demo SVG (see `mise run svg`)
 
 # After `mise install`, wire up hk's git hooks through mise so they resolve hk + tools
 # without requiring shell activation. Skipped in CI, where the hooks aren't needed.
@@ -37,6 +38,10 @@ run = "cargo run --quiet --example gen-man"
 [tasks.man-check]
 description = "Verify man/purr.1 is in sync with the CLI (run `mise run man` if this fails)"
 run = ["cargo run --quiet --example gen-man", "git diff --exit-code -- man/purr.1"]
+
+[tasks.svg]
+description = "Regenerate assets/purr.svg demo screenshot (requires freeze)"
+run = "bash scripts/gen-svg.sh"
 
 [tasks.start]
 description = "Build and run purr (forward args: mise run start -- <args>)"
