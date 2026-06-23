@@ -162,12 +162,12 @@ fn distro_palette(name: &str) -> [u8; 6] {
     match name {
         // Existing logos in repo:
         "ubuntu" => [208, 15, 7, 7, 7, 7],
-        "arch" => [6, 7, 6, 6, 6, 6],
-        "fedora" | "fedora_silverblue" | "fedora-silverblue" => [12, 7, 12, 12, 12, 12],
-        "debian" => [1, 7, 3, 3, 3, 3],
-        "nixos" => [4, 6, 4, 4, 4, 4],
+        "arch" => [6, 6, 7, 1, 7, 7], // neofetch `set_colors 6 6 7 1`
+        "fedora" | "fedora_silverblue" | "fedora-silverblue" => [12, 7, 7, 7, 7, 7],
+        "debian" => [1, 7, 3, 7, 7, 7],
+        "nixos" => [4, 6, 7, 7, 7, 7],
         "macos" => [2, 3, 1, 1, 5, 4], // neofetch `set_colors 2 3 1 1 5 4`
-        "windows" => [4, 6, 4, 4, 4, 4],
+        "windows" => [1, 2, 4, 3, 7, 7], // neofetch `set_colors 1 2 4 3` (retro flag)
         "linux" => [7, 8, 3, 7, 7, 7],
 
         // Ported logos:
@@ -190,9 +190,9 @@ fn distro_palette(name: &str) -> [u8; 6] {
         "centos" => [3, 5, 4, 2, 7, 7],
         "deepin" => [6, 7, 6, 6, 6, 6],
         "devuan" => [5, 7, 5, 5, 5, 5],
-        "freebsd" => [1, 7, 1, 1, 1, 1],
-        "openbsd" => [3, 7, 6, 1, 7, 7],
-        "netbsd" => [5, 7, 5, 5, 5, 5],
+        "freebsd" => [1, 7, 3, 7, 7, 7],
+        "openbsd" => [3, 7, 6, 1, 8, 7], // neofetch `set_colors 3 7 6 1 8`
+        "netbsd" => [5, 7, 7, 7, 7, 7],
         "kde_neon" | "kde-neon" | "neon" => [6, 7, 6, 6, 6, 6],
         "kubuntu" => [4, 7, 4, 4, 4, 4],
         "lubuntu" => [4, 7, 4, 4, 4, 4],

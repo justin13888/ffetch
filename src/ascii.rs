@@ -43,6 +43,12 @@ pub fn get_distro_color(distro: &str) -> crossterm::style::Color {
         Color::DarkMagenta
     } else if d.contains("alpine") {
         Color::DarkBlue
+    } else if d.contains("freebsd") {
+        Color::DarkRed // neofetch c1 = 1
+    } else if d.contains("netbsd") {
+        Color::DarkMagenta // neofetch c1 = 5
+    } else if d.contains("openbsd") {
+        Color::DarkYellow // neofetch c1 = 3
     } else if d.contains("endeavour") || d.contains("kali") {
         Color::DarkMagenta
     } else if d.contains("kde") || d.contains("plasma") {
