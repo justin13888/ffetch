@@ -4,7 +4,15 @@ Fast, universal, cross-platform fetching tool written in Rust.
 
 Perfect for sharing your [rice](https://www.reddit.com/r/unixporn/) or showing stats on terminal startup.
 
-<!-- TODO: Build Status -->
+<p align="center">
+  <a href="https://crates.io/crates/purrfetch"><img src="https://img.shields.io/crates/v/purrfetch.svg" alt="crates.io"></a>
+  <a href="https://github.com/justin13888/purrfetch/actions/workflows/ci.yml"><img src="https://github.com/justin13888/purrfetch/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://crates.io/crates/purrfetch"><img src="https://img.shields.io/crates/d/purrfetch.svg" alt="downloads"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/crates/l/purrfetch.svg" alt="license"></a>
+</p>
+
+> **purr is v1 — stable and actively maintained.** A fast, memory-safe, drop-in
+> successor to the archived [neofetch](https://github.com/dylanaraps/neofetch).
 
 <p align="center">
   <img src="assets/purr.svg" alt="purr output on Fedora, themed Catppuccin Macchiato" width="700">
