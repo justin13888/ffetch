@@ -1093,25 +1093,88 @@ pub fn format_cpu(model: &str, opts: &CpuOptions) -> String {
     cpu
 }
 
-/// Strip the marketing cruft neofetch removes from CPU model strings
-/// (`(R)`, `(TM)`, `CPU`, `Processor`, `N-Core`, …) and collapse whitespace.
+/// Strip the marketing cruft neofetch removes from CPU model strings, mirroring
+/// the exact removal sequence in neofetch's `get_cpu` (lines `cpu="${cpu//…}"`).
+///
+/// So "Intel(R) Core(TM) i7-11800H CPU" -> "Intel i7-11800H" (the "Core" word is
+/// dropped), "AMD Ryzen 7 7800X3D 8-Core Processor" -> "AMD Ryzen 7 7800X3D",
+/// and "… with Radeon Vega Graphics" is removed while a bare "with Radeon
+/// Graphics" is kept. Whitespace is collapsed at the end (neofetch's `trim()`).
 fn clean_cpu_model(model: &str) -> String {
     let mut s = model.to_string();
-    for pat in ["(R)", "(r)", "(TM)", "(tm)", "CPU", "Processor"] {
-        s = s.replace(pat, " ");
+
+    // Literal trademark / core-word / filler removals.
+    for pat in [
+        "(TM)",
+        "(tm)",
+        "(R)",
+        "(r)",
+        "CPU",
+        "Processor",
+        "Dual-Core",
+        "Quad-Core",
+        "Six-Core",
+        "Eight-Core",
+    ] {
+        s = s.replace(pat, "");
     }
-    s.split_whitespace()
-        .filter(|tok| {
-            // Drop "N-Core" tokens (e.g. "8-Core").
-            let core = tok.to_ascii_lowercase();
-            !(core.ends_with("-core")
-                && core
-                    .trim_end_matches("-core")
-                    .chars()
-                    .all(|c| c.is_ascii_digit()))
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
+
+    // "16-Core" / "8-Core" (neofetch's `[1-9][0-9]-Core` / `[0-9]-Core`).
+    remove_n_core(&mut s);
+    // ", <n> Compute Cores" (AMD APUs).
+    remove_span(&mut s, ", ", " Compute Cores");
+    // "Core " -> " " drops the marketing "Core" word (e.g. "Intel Core i7").
+    s = s.replace("Core ", " ");
+    // `("AuthenticAMD" …)` parenthetical on old AMD strings.
+    remove_span(&mut s, "(\"AuthenticAMD\"", ")");
+    // "with Radeon <model> Graphics" — only when a model word is present, so a
+    // bare "with Radeon Graphics" (single space) is preserved, like neofetch.
+    remove_span(&mut s, "with Radeon ", " Graphics");
+    s = s.replace(", altivec supported", "");
+    // "FPU…" / "Chip Revision…" extend to end of string (`FPU*` / `Chip Revision*`).
+    if let Some(i) = s.find("FPU") {
+        s.truncate(i);
+    }
+    if let Some(i) = s.find("Chip Revision") {
+        s.truncate(i);
+    }
+    s = s.replace("Technologies, Inc", "");
+    s = s.replace("Core2", "Core 2");
+
+    s.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// Remove "<digits>-Core" runs (e.g. "8-Core", "16-Core"), matching neofetch's
+/// digit-prefixed `-Core` globs. Scans the whole string so multiple runs go.
+fn remove_n_core(s: &mut String) {
+    let needle = "-Core";
+    let mut from = 0;
+    while let Some(rel) = s[from..].find(needle) {
+        let dash = from + rel;
+        let mut start = dash;
+        while start > 0 && s.as_bytes()[start - 1].is_ascii_digit() {
+            start -= 1;
+        }
+        if start < dash {
+            s.replace_range(start..dash + needle.len(), "");
+            from = start;
+        } else {
+            from = dash + needle.len();
+        }
+    }
+}
+
+/// Remove the span from the first `start` marker through the last following
+/// `end` marker (a greedy `start*end` glob, like neofetch). No-op if either
+/// marker is missing or `end` doesn't occur after `start`.
+fn remove_span(s: &mut String, start: &str, end: &str) {
+    let Some(a) = s.find(start) else { return };
+    let after = a + start.len();
+    let Some(rel) = s[after..].rfind(end) else {
+        return;
+    };
+    let b = after + rel + end.len();
+    s.replace_range(a..b, "");
 }
 
 /// Read the CPU's frequency from sysfs and render it as GHz, matching neofetch.
@@ -1449,15 +1512,51 @@ mod tests {
 
     #[test]
     fn strips_intel_trademarks_and_cpu() {
+        // neofetch drops the marketing "Core" word too ("Core " -> " ").
         assert_eq!(
             clean_cpu_model("Intel(R) Core(TM) i7-11800H CPU"),
-            "Intel Core i7-11800H"
+            "Intel i7-11800H"
+        );
+        assert_eq!(
+            clean_cpu_model("Intel(R) Xeon(R) CPU E5-2680 v4"),
+            "Intel Xeon E5-2680 v4"
+        );
+        // "Core2" becomes "Core 2" (and is not stripped by the "Core " rule).
+        assert_eq!(
+            clean_cpu_model("Intel(R) Core(TM)2 Duo CPU E8400"),
+            "Intel Core 2 Duo E8400"
+        );
+    }
+
+    #[test]
+    fn strips_amd_apu_radeon_and_compute_cores() {
+        // A model word between Radeon/Graphics -> stripped.
+        assert_eq!(
+            clean_cpu_model("AMD Ryzen 5 3400G with Radeon Vega Graphics"),
+            "AMD Ryzen 5 3400G"
+        );
+        // Bare "with Radeon Graphics" (single space) is preserved.
+        assert_eq!(
+            clean_cpu_model("AMD Ryzen 7 5825U with Radeon Graphics"),
+            "AMD Ryzen 7 5825U with Radeon Graphics"
+        );
+        // Two-digit core counts and ", N Compute Cores".
+        assert_eq!(
+            clean_cpu_model("AMD Ryzen 9 5900X 12-Core Processor"),
+            "AMD Ryzen 9 5900X"
+        );
+        assert_eq!(
+            clean_cpu_model(
+                "AMD A10-7850K APU with Radeon(TM) R7 Graphics, 4 Compute Cores 2C+2G"
+            ),
+            "AMD A10-7850K APU 2C+2G"
         );
     }
 
     #[test]
     fn leaves_clean_names_untouched() {
         assert_eq!(clean_cpu_model("Apple M1"), "Apple M1");
+        assert_eq!(clean_cpu_model("AMD Ryzen 7 7800X3D"), "AMD Ryzen 7 7800X3D");
     }
 
     use super::{
