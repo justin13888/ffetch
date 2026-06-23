@@ -38,17 +38,26 @@ struct ResolvedColors {
     info: Color,
 }
 
-/// Resolve the configured `colors` slots against the distro `primary` colour.
-/// Empty `colors` reproduces neofetch's distro defaults (everything the logo
-/// colour, values in the terminal's default foreground).
-fn resolve_colors(colors: &[u8], primary: Color) -> ResolvedColors {
+/// Resolve the configured `colors` slots against the distro logo `palette` and
+/// its `primary` tint. Empty `colors` reproduces neofetch's `set_text_colors`
+/// distro defaults: the title in the logo colour (c1), the subtitle labels in
+/// the logo's second colour (c2), and the `@`, underline, colon and values all
+/// in the terminal's default foreground.
+fn resolve_colors(colors: &[u8], palette: &[u8; 6], primary: Color) -> ResolvedColors {
     if colors.is_empty() {
+        // neofetch sets subtitle=color(c2), but with c2==7 -> c1 (primary) and
+        // c2==8 -> reset; everything besides title and subtitle is terminal fg.
+        let subtitle = match palette[1] {
+            7 => primary,
+            8 => Color::Reset,
+            c => Color::AnsiValue(c),
+        };
         return ResolvedColors {
             title: primary,
-            at: primary,
-            underline: primary,
-            subtitle: primary,
-            colon: primary,
+            at: Color::Reset,
+            underline: Color::Reset,
+            subtitle,
+            colon: Color::Reset,
             info: Color::Reset,
         };
     }
@@ -145,7 +154,7 @@ impl NeofetchRenderer {
             }
         };
 
-        let colors = resolve_colors(&self.config.colors, primary_color);
+        let colors = resolve_colors(&self.config.colors, &palette, primary_color);
         let bold = self.config.bold;
         let sep = self.config.separator.as_str();
         let sep_width = sep.chars().count();
@@ -472,5 +481,44 @@ impl NeofetchRenderer {
             }
         }
         Ok(lines)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resolve_colors;
+    use crossterm::style::Color;
+
+    #[test]
+    fn distro_default_colors_match_neofetch() {
+        let primary = Color::AnsiValue(12);
+        // Fedora-like [12, 7, …]: title=c1 tint, subtitle (c2==7) -> primary,
+        // and @/underline/colon/info in the terminal's default foreground.
+        let c = resolve_colors(&[], &[12, 7, 12, 12, 12, 12], primary);
+        assert_eq!(c.title, primary);
+        assert_eq!(c.subtitle, primary);
+        assert_eq!(c.at, Color::Reset);
+        assert_eq!(c.underline, Color::Reset);
+        assert_eq!(c.colon, Color::Reset);
+        assert_eq!(c.info, Color::Reset);
+
+        // Distinct c2 (macOS-like [2, 3, …]) -> subtitle is that colour.
+        let c = resolve_colors(&[], &[2, 3, 1, 1, 5, 4], Color::AnsiValue(2));
+        assert_eq!(c.subtitle, Color::AnsiValue(3));
+
+        // c2 == 8 -> subtitle resets to the terminal foreground.
+        let c = resolve_colors(&[], &[7, 8, 3, 7, 7, 7], primary);
+        assert_eq!(c.subtitle, Color::Reset);
+    }
+
+    #[test]
+    fn explicit_colors_fill_all_six_slots() {
+        let c = resolve_colors(&[1, 2, 3, 4, 5, 6], &[7; 6], Color::AnsiValue(12));
+        assert_eq!(c.title, Color::AnsiValue(1));
+        assert_eq!(c.at, Color::AnsiValue(2));
+        assert_eq!(c.underline, Color::AnsiValue(3));
+        assert_eq!(c.subtitle, Color::AnsiValue(4));
+        assert_eq!(c.colon, Color::AnsiValue(5));
+        assert_eq!(c.info, Color::AnsiValue(6));
     }
 }
