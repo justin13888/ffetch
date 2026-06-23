@@ -259,3 +259,5 @@ Feel free to submit an issue or PR on GitHub.
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+purr ports ASCII logos and parity logic from [neofetch](https://github.com/dylanaraps/neofetch) (also MIT). See [NOTICE.md](NOTICE.md) for third-party attributions.
