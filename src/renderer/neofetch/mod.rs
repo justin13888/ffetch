@@ -159,13 +159,6 @@ impl NeofetchRenderer {
         let sep = self.config.separator.as_str();
         let sep_width = sep.chars().count();
 
-        let max_title_len = self
-            .probe_list
-            .iter()
-            .map(|(title, _)| title.chars().count())
-            .max()
-            .unwrap_or(0);
-
         let stdout = std::io::stdout();
         let is_tty = stdout.is_terminal();
         let mut w = std::io::BufWriter::new(stdout.lock());
@@ -206,8 +199,10 @@ impl NeofetchRenderer {
 
         let probe_art_start = art_idx;
         let n_probes = self.probe_list.len();
-        // Column (0-based) where values start: ascii + "   " + padded label + sep + " ".
-        let value_col = (ascii_width + 3 + max_title_len + sep_width + 1) as u16;
+        // 0-based column where a value starts: ascii + "   " + label + sep + " ".
+        // Labels are not padded (neofetch puts the colon right after the label),
+        // so the column depends on each probe's own label length.
+        let value_col = |title_len: usize| (ascii_width + 3 + title_len + sep_width + 1) as u16;
         // Per-probe config, aligned with `probe_list` by index, for option-aware formatting.
         let probes = &self.config.probes;
 
@@ -243,11 +238,10 @@ impl NeofetchRenderer {
                     }
                     Some(ss) => ss.to_vec(),
                 };
-                let label = format!("{:width$}", title, width = max_title_len);
                 for s in strings.iter() {
                     // Repeat the label on every line (e.g. one "GPU:" per GPU),
                     // matching neofetch rather than leaving orphaned values.
-                    put_line(&mut w, &get_art(art_idx), &label, s)?;
+                    put_line(&mut w, &get_art(art_idx), title, s)?;
                     art_idx += 1;
                 }
             }
@@ -256,10 +250,9 @@ impl NeofetchRenderer {
 
             // Phase 1: print all placeholder lines immediately (label + separator).
             for (i, (title, _)) in self.probe_list.iter().enumerate() {
-                let label = format!("{:width$}", title, width = max_title_len);
                 Self::put(&mut w, primary_color, false, &get_art(probe_art_start + i))?;
                 queue!(w, Print("   "))?;
-                Self::put(&mut w, colors.subtitle, bold, &label)?;
+                Self::put(&mut w, colors.subtitle, bold, title)?;
                 Self::put(&mut w, colors.colon, bold, sep)?;
                 queue!(w, Print(" \n"))?;
             }
@@ -281,13 +274,15 @@ impl NeofetchRenderer {
                 };
 
                 if strings.len() == 1 {
-                    // Single value: move cursor to the right line and fill in
+                    // Single value: move cursor to the right line and fill in,
+                    // at the column just after this probe's own label.
                     let lines_up = (n_probes - index) as u16;
+                    let col = value_col(self.probe_list[index].0.chars().count());
                     let _ = execute!(
                         w,
                         cursor::RestorePosition,
                         cursor::MoveUp(lines_up),
-                        cursor::MoveToColumn(value_col),
+                        cursor::MoveToColumn(col),
                     );
                     let _ = Self::put(&mut w, colors.info, false, &strings[0]);
                     let _ = execute!(w, cursor::RestorePosition);
@@ -317,9 +312,8 @@ impl NeofetchRenderer {
                         }
                         Some(ss) => ss.to_vec(),
                     };
-                    let label = format!("{:width$}", title, width = max_title_len);
                     for s in strings.iter() {
-                        put_line(&mut w, &get_art(ra_idx), &label, s)?;
+                        put_line(&mut w, &get_art(ra_idx), title, s)?;
                         ra_idx += 1;
                     }
                 }
@@ -439,11 +433,6 @@ impl NeofetchRenderer {
         use libmacchina::traits::GeneralReadout as _;
 
         let probes = &self.config.probes;
-        let max_title = probes
-            .iter()
-            .map(|p| p.label().chars().count())
-            .max()
-            .unwrap_or(0);
 
         let mut results: Vec<Option<Vec<String>>> = vec![None; self.probe_list.len()];
         execute_probes_streaming(&self.probe_list, |index, _, result| {
@@ -476,7 +465,7 @@ impl NeofetchRenderer {
         for (i, p) in probes.iter().enumerate() {
             if let Some(strings) = &results[i] {
                 for s in strings {
-                    lines.push(format!("{:max_title$}{sep} {s}", p.label()));
+                    lines.push(format!("{}{sep} {s}", p.label()));
                 }
             }
         }
