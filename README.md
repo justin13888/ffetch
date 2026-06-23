@@ -30,16 +30,16 @@ cargo install --locked purrfetch
 
 ### Prebuilt binaries
 
-Download a binary for your platform from the [latest release](https://github.com/justin13888/purr/releases/latest), or use the install script:
+Download a binary for your platform from the [latest release](https://github.com/justin13888/purrfetch/releases/latest), or use the install script:
 
 ```bash
 # Linux & macOS
-curl --proto '=https' --tlsv1.2 -LsSf https://github.com/justin13888/purr/releases/latest/download/purrfetch-installer.sh | sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/justin13888/purrfetch/releases/latest/download/purrfetch-installer.sh | sh
 ```
 
 ```powershell
 # Windows
-powershell -ExecutionPolicy Bypass -c "irm https://github.com/justin13888/purr/releases/latest/download/purrfetch-installer.ps1 | iex"
+powershell -ExecutionPolicy Bypass -c "irm https://github.com/justin13888/purrfetch/releases/latest/download/purrfetch-installer.ps1 | iex"
 ```
 
 <!-- ### Alpine Linux -->
@@ -258,7 +258,7 @@ If you encounter any issues, please open an issue on the GitHub repository.
 
 Feel free to submit an issue or PR on GitHub.
 
-> Notice: Looking for submissions/suggestions of new ASCII arts: <https://github.com/justin13888/purr/issues/1>
+> Notice: Looking for submissions/suggestions of new ASCII arts: <https://github.com/justin13888/purrfetch/issues/1>
 
 ## License
 
