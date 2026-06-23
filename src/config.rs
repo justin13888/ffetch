@@ -606,6 +606,10 @@ impl UptimeOptions {
 
 /// Build neofetch's worded uptime ("1 day, 9 hours, 22 mins"), with the
 /// minute/second words parameterized for the `on`/`off` shorthand.
+///
+/// Like neofetch, each of day/hour/min is hidden individually when zero (so an
+/// exact-hour uptime reads "9 hours", not "9 hours, 0 mins"), falling back to
+/// seconds only when day, hour and minute are all zero.
 fn uptime_words(
     days: usize,
     hours: usize,
@@ -621,20 +625,20 @@ fn uptime_words(
             format!("{n} {word}s")
         }
     };
+    let mut parts = Vec::with_capacity(3);
     if days > 0 {
-        format!(
-            "{}, {}, {}",
-            unit(days, "day"),
-            unit(hours, "hour"),
-            unit(mins, min_word)
-        )
-    } else if hours > 0 {
-        format!("{}, {}", unit(hours, "hour"), unit(mins, min_word))
-    } else if mins > 0 {
-        unit(mins, min_word)
-    } else {
-        unit(secs, sec_word)
+        parts.push(unit(days, "day"));
     }
+    if hours > 0 {
+        parts.push(unit(hours, "hour"));
+    }
+    if mins > 0 {
+        parts.push(unit(mins, min_word));
+    }
+    if parts.is_empty() {
+        return unit(secs, sec_word);
+    }
+    parts.join(", ")
 }
 
 impl KernelOptions {
@@ -708,14 +712,32 @@ impl ShellOptions {
 }
 
 impl DeOptions {
-    /// Render the desktop-environment `name`, optionally with `version`.
+    /// Render the desktop-environment `name`, optionally with `version`, plus a
+    /// trailing " (Wayland)" on Wayland sessions (matching neofetch:
+    /// `[[ $de && $WAYLAND_DISPLAY ]] && de+=" (Wayland)"`).
     pub fn format(&self, name: &str, version: Option<&str>) -> String {
+        self.format_inner(
+            name,
+            version,
+            std::env::var_os("WAYLAND_DISPLAY").is_some(),
+        )
+    }
+
+    fn format_inner(&self, name: &str, version: Option<&str>, wayland: bool) -> String {
+        if name.is_empty() {
+            return String::new();
+        }
         let mut s = name.to_string();
         if self.version
             && let Some(v) = version
         {
             s.push(' ');
             s.push_str(v);
+        }
+        // The " (Wayland)" suffix comes after the version, like neofetch. Guard
+        // against double-appending if the upstream name already carries it.
+        if wayland && !s.contains("(Wayland)") {
+            s.push_str(" (Wayland)");
         }
         s
     }
@@ -1108,6 +1130,42 @@ probes = [
         assert_eq!(on.format(secs), "1 day, 9 hours, 22 mins");
         assert_eq!(off.format(secs), "1 day, 9 hours, 22 minutes");
         assert_eq!(tiny.format(secs), "1d 9h 22m");
+
+        // Zero-valued fields are hidden individually (neofetch parity), rather
+        // than rendered as "0 hours" / "0 mins".
+        assert_eq!(on.format(2 * 86400 + 5 * 60), "2 days, 5 mins");
+        assert_eq!(on.format(9 * 3600), "9 hours");
+        assert_eq!(on.format(86400 + 3 * 3600), "1 day, 3 hours");
+        assert_eq!(tiny.format(2 * 86400 + 5 * 60), "2d 5m");
+        // All of day/hour/min zero -> seconds fallback.
+        assert_eq!(on.format(45), "45 secs");
+        assert_eq!(off.format(45), "45 seconds");
+    }
+
+    #[test]
+    fn de_wayland_suffix() {
+        let de = DeOptions {
+            version: true,
+            ..Default::default()
+        };
+        // Wayland appends after the version; X11 / non-Wayland does not.
+        assert_eq!(
+            de.format_inner("GNOME", Some("50.2"), true),
+            "GNOME 50.2 (Wayland)"
+        );
+        assert_eq!(de.format_inner("GNOME", Some("50.2"), false), "GNOME 50.2");
+        // Appended even when the version is hidden, and never doubled.
+        let no_ver = DeOptions {
+            version: false,
+            ..Default::default()
+        };
+        assert_eq!(no_ver.format_inner("KDE", Some("6.1"), true), "KDE (Wayland)");
+        assert_eq!(
+            de.format_inner("GNOME (Wayland)", None, true),
+            "GNOME (Wayland)"
+        );
+        // Empty DE stays empty (renderer omits the line).
+        assert_eq!(de.format_inner("", None, true), "");
     }
 
     #[test]

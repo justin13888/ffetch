@@ -316,6 +316,43 @@ fn parse_ini_key(path: &std::path::Path, key: &str) -> Result<String, ProbeError
     Err(ProbeError::MetricsUnavailable)
 }
 
+/// Resolve a GTK theme/icon setting and append neofetch's `[GTK…]` version tag
+/// (`get_style` with the default `gtk_shorthand=off`). GNOME-style DEs expose a
+/// single value via gsettings that neofetch treats as both GTK2 and GTK3
+/// (`[GTK2/3]`); the gtk-3.0 ini fallback yields `[GTK3]`.
+fn gtk_style(gsettings_key: &str, ini_key: &str) -> Result<String, ProbeError> {
+    if let Ok(v) = gsettings_get("org.gnome.desktop.interface", gsettings_key) {
+        return Ok(with_gtk_tag(&v, true));
+    }
+    let home = std::env::var("HOME").map_err(|_| ProbeError::MetricsUnavailable)?;
+    let v = parse_ini_key(
+        std::path::Path::new(&format!("{home}/.config/gtk-3.0/settings.ini")),
+        ini_key,
+    )?;
+    Ok(with_gtk_tag(&v, false))
+}
+
+/// Append the GTK version tag: `[GTK2/3]` when the value came from gsettings,
+/// else `[GTK3]`.
+fn with_gtk_tag(value: &str, from_gsettings: bool) -> String {
+    let tag = if from_gsettings { "[GTK2/3]" } else { "[GTK3]" };
+    format!("{value} {tag}")
+}
+
+/// Apply neofetch's window-manager renames (`*GNOME*Shell*` -> "Mutter",
+/// `*WINDOWMAKER*` -> "wmaker"). Done case-insensitively so libmacchina's
+/// lowercase process name "gnome-shell" maps to "Mutter" like neofetch.
+fn normalize_wm(name: &str) -> String {
+    let lower = name.to_ascii_lowercase();
+    if lower.contains("gnome") && lower.contains("shell") {
+        "Mutter".to_string()
+    } else if lower.contains("windowmaker") {
+        "wmaker".to_string()
+    } else {
+        name.to_string()
+    }
+}
+
 #[instrument(level = "debug")]
 fn detect_terminal_font() -> Result<String, ProbeError> {
     use libmacchina::traits::GeneralReadout as _;
@@ -511,8 +548,6 @@ impl From<ProbeType> for ProbeResultFunction {
         use libmacchina::traits::NetworkReadout as _;
         #[cfg(not(target_os = "macos"))]
         use libmacchina::traits::PackageReadout as _;
-        #[cfg(not(target_os = "macos"))]
-        use libmacchina::traits::ProductReadout as _;
 
         match probe_type {
             ProbeType::Host => Box::new(|| {
@@ -556,15 +591,27 @@ impl From<ProbeType> for ProbeResultFunction {
                 {
                     Ok(ProbeResultValue::Single(ProbeValue::Model(
                         String::new(),
-                        sysctl("hw.model")?,
+                        clean_model(&sysctl("hw.model")?),
                     )))
                 }
+                // neofetch sources the model from DMI sysfs — preferring the
+                // motherboard (`board_vendor`/`board_name`) over the chassis
+                // product, then strips dummy OEM placeholders. libmacchina only
+                // exposes the product name, so read the sysfs files directly and
+                // fall back to libmacchina when they're unavailable.
                 #[cfg(not(target_os = "macos"))]
                 {
-                    Ok(ProbeResultValue::Single(ProbeValue::Model(
-                        product_readout().vendor()?,
-                        product_readout().product()?,
-                    )))
+                    #[cfg(target_os = "linux")]
+                    let raw = read_dmi_model().or_else(libmacchina_model);
+                    #[cfg(not(target_os = "linux"))]
+                    let raw = libmacchina_model();
+
+                    match raw.map(|s| clean_model(&s)).filter(|s| !s.is_empty()) {
+                        Some(model) => {
+                            Ok(ProbeResultValue::Single(ProbeValue::Model(String::new(), model)))
+                        }
+                        None => Err(ProbeError::MetricsUnavailable),
+                    }
                 }
             }),
             ProbeType::Kernel => Box::new(|| {
@@ -633,9 +680,9 @@ impl From<ProbeType> for ProbeResultFunction {
                 Ok(ProbeResultValue::Single(ProbeValue::DE(name, version)))
             }),
             ProbeType::WM => Box::new(|| {
-                Ok(ProbeResultValue::Single(ProbeValue::WM(
-                    general_readout().window_manager()?,
-                )))
+                Ok(ProbeResultValue::Single(ProbeValue::WM(normalize_wm(
+                    &general_readout().window_manager()?,
+                ))))
             }),
             ProbeType::WMTheme => Box::new(|| {
                 // macOS: "<accent> (<interface style>)", e.g. "Blue (Dark)", from
@@ -669,31 +716,13 @@ impl From<ProbeType> for ProbeResultFunction {
                 }
             }),
             ProbeType::Theme => Box::new(|| {
-                // GNOME: query GTK theme via gsettings
-                // Fallback: parse GTK3 settings.ini
-                let theme =
-                    gsettings_get("org.gnome.desktop.interface", "gtk-theme").or_else(|_| {
-                        let home =
-                            std::env::var("HOME").map_err(|_| ProbeError::MetricsUnavailable)?;
-                        parse_ini_key(
-                            std::path::Path::new(&format!("{}/.config/gtk-3.0/settings.ini", home)),
-                            "gtk-theme-name",
-                        )
-                    })?;
+                // GTK theme via gsettings (GNOME), falling back to the gtk-3.0
+                // settings.ini, with neofetch's `[GTK2/3]`/`[GTK3]` tag.
+                let theme = gtk_style("gtk-theme", "gtk-theme-name")?;
                 Ok(ProbeResultValue::Single(ProbeValue::Theme(theme)))
             }),
             ProbeType::Icons => Box::new(|| {
-                // GNOME: query icon theme via gsettings
-                // Fallback: parse GTK3 settings.ini
-                let icons =
-                    gsettings_get("org.gnome.desktop.interface", "icon-theme").or_else(|_| {
-                        let home =
-                            std::env::var("HOME").map_err(|_| ProbeError::MetricsUnavailable)?;
-                        parse_ini_key(
-                            std::path::Path::new(&format!("{}/.config/gtk-3.0/settings.ini", home)),
-                            "gtk-icon-theme-name",
-                        )
-                    })?;
+                let icons = gtk_style("icon-theme", "gtk-icon-theme-name")?;
                 Ok(ProbeResultValue::Single(ProbeValue::Icons(icons)))
             }),
             ProbeType::Cursor => Box::new(|| Err(ProbeError::Unimplemented)),
@@ -1053,6 +1082,83 @@ impl ProbeValue {
 /// Format a raw CPU model into neofetch's CPU line, honoring [`CpuOptions`]:
 /// cruft stripped, optional brand, core count, and max clock, e.g.
 /// "AMD Ryzen 7 7800X3D (16) @ 5.053GHz".
+/// Read the host model from DMI sysfs in neofetch's order: motherboard
+/// (`board_vendor` + `board_name`) first, then the chassis product
+/// (`product_name` + `product_version`), then device-tree / `/tmp/sysinfo`.
+/// Returns the raw (un-cleaned) string, or `None` when no source exists.
+#[cfg(target_os = "linux")]
+fn read_dmi_model() -> Option<String> {
+    fn read(path: &str) -> Option<String> {
+        std::fs::read_to_string(path)
+            .ok()
+            .map(|s| s.trim().to_string())
+    }
+    // neofetch keys off file existence of the pair, then joins the two contents
+    // with a space (either may be empty; `clean_model` trims the result).
+    let pair = |a: &str, b: &str| -> Option<String> {
+        let base = "/sys/devices/virtual/dmi/id";
+        let va = read(&format!("{base}/{a}"));
+        let vb = read(&format!("{base}/{b}"));
+        (va.is_some() || vb.is_some())
+            .then(|| format!("{} {}", va.unwrap_or_default(), vb.unwrap_or_default()))
+    };
+    pair("board_vendor", "board_name")
+        .or_else(|| pair("product_name", "product_version"))
+        .or_else(|| read("/sys/firmware/devicetree/base/model"))
+        .or_else(|| read("/tmp/sysinfo/model"))
+}
+
+/// libmacchina fallback for the host model (`vendor` + `product`), used when DMI
+/// sysfs is unavailable (e.g. on Windows).
+#[cfg(not(target_os = "macos"))]
+fn libmacchina_model() -> Option<String> {
+    use libmacchina::traits::ProductReadout as _;
+    let pr = product_readout();
+    match (pr.vendor().ok(), pr.product().ok()) {
+        (Some(v), Some(p)) => Some(format!("{v} {p}")),
+        (Some(s), None) | (None, Some(s)) => Some(s),
+        (None, None) => None,
+    }
+}
+
+/// Strip the dummy OEM placeholder strings neofetch removes from model strings
+/// (`To be filled by O.E.M.`, `System Product Name`, `Default string`, the `�`
+/// replacement char, …) and collapse whitespace. Wraps known VM identifiers
+/// (`Standard PC…` → `KVM/QEMU (…)`, `OpenBSD…` → `vmm (…)`). An empty result
+/// means the string was entirely placeholder text.
+fn clean_model(model: &str) -> String {
+    let mut s = model.to_string();
+    s = s.replace("To be filled by O.E.M.", "");
+    // Greedy `*` tails: truncate at the marker.
+    for marker in ["To Be Filled", "OEM"] {
+        if let Some(i) = s.find(marker) {
+            s.truncate(i);
+        }
+    }
+    for pat in [
+        "Not Applicable",
+        "System Product Name",
+        "System Version",
+        "Undefined",
+        "Default string",
+        "Not Specified",
+        "Type1ProductConfigId",
+        "INVALID",
+        "All Series",
+        "\u{fffd}",
+    ] {
+        s = s.replace(pat, "");
+    }
+    let s = s.split_whitespace().collect::<Vec<_>>().join(" ");
+    if s.starts_with("Standard PC") {
+        return format!("KVM/QEMU ({s})");
+    }
+    if s.starts_with("OpenBSD") {
+        return format!("vmm ({s})");
+    }
+    s
+}
+
 pub fn format_cpu(model: &str, opts: &CpuOptions) -> String {
     use libmacchina::traits::GeneralReadout as _;
 
@@ -1093,25 +1199,88 @@ pub fn format_cpu(model: &str, opts: &CpuOptions) -> String {
     cpu
 }
 
-/// Strip the marketing cruft neofetch removes from CPU model strings
-/// (`(R)`, `(TM)`, `CPU`, `Processor`, `N-Core`, …) and collapse whitespace.
+/// Strip the marketing cruft neofetch removes from CPU model strings, mirroring
+/// the exact removal sequence in neofetch's `get_cpu` (lines `cpu="${cpu//…}"`).
+///
+/// So "Intel(R) Core(TM) i7-11800H CPU" -> "Intel i7-11800H" (the "Core" word is
+/// dropped), "AMD Ryzen 7 7800X3D 8-Core Processor" -> "AMD Ryzen 7 7800X3D",
+/// and "… with Radeon Vega Graphics" is removed while a bare "with Radeon
+/// Graphics" is kept. Whitespace is collapsed at the end (neofetch's `trim()`).
 fn clean_cpu_model(model: &str) -> String {
     let mut s = model.to_string();
-    for pat in ["(R)", "(r)", "(TM)", "(tm)", "CPU", "Processor"] {
-        s = s.replace(pat, " ");
+
+    // Literal trademark / core-word / filler removals.
+    for pat in [
+        "(TM)",
+        "(tm)",
+        "(R)",
+        "(r)",
+        "CPU",
+        "Processor",
+        "Dual-Core",
+        "Quad-Core",
+        "Six-Core",
+        "Eight-Core",
+    ] {
+        s = s.replace(pat, "");
     }
-    s.split_whitespace()
-        .filter(|tok| {
-            // Drop "N-Core" tokens (e.g. "8-Core").
-            let core = tok.to_ascii_lowercase();
-            !(core.ends_with("-core")
-                && core
-                    .trim_end_matches("-core")
-                    .chars()
-                    .all(|c| c.is_ascii_digit()))
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
+
+    // "16-Core" / "8-Core" (neofetch's `[1-9][0-9]-Core` / `[0-9]-Core`).
+    remove_n_core(&mut s);
+    // ", <n> Compute Cores" (AMD APUs).
+    remove_span(&mut s, ", ", " Compute Cores");
+    // "Core " -> " " drops the marketing "Core" word (e.g. "Intel Core i7").
+    s = s.replace("Core ", " ");
+    // `("AuthenticAMD" …)` parenthetical on old AMD strings.
+    remove_span(&mut s, "(\"AuthenticAMD\"", ")");
+    // "with Radeon <model> Graphics" — only when a model word is present, so a
+    // bare "with Radeon Graphics" (single space) is preserved, like neofetch.
+    remove_span(&mut s, "with Radeon ", " Graphics");
+    s = s.replace(", altivec supported", "");
+    // "FPU…" / "Chip Revision…" extend to end of string (`FPU*` / `Chip Revision*`).
+    if let Some(i) = s.find("FPU") {
+        s.truncate(i);
+    }
+    if let Some(i) = s.find("Chip Revision") {
+        s.truncate(i);
+    }
+    s = s.replace("Technologies, Inc", "");
+    s = s.replace("Core2", "Core 2");
+
+    s.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// Remove "<digits>-Core" runs (e.g. "8-Core", "16-Core"), matching neofetch's
+/// digit-prefixed `-Core` globs. Scans the whole string so multiple runs go.
+fn remove_n_core(s: &mut String) {
+    let needle = "-Core";
+    let mut from = 0;
+    while let Some(rel) = s[from..].find(needle) {
+        let dash = from + rel;
+        let mut start = dash;
+        while start > 0 && s.as_bytes()[start - 1].is_ascii_digit() {
+            start -= 1;
+        }
+        if start < dash {
+            s.replace_range(start..dash + needle.len(), "");
+            from = start;
+        } else {
+            from = dash + needle.len();
+        }
+    }
+}
+
+/// Remove the span from the first `start` marker through the last following
+/// `end` marker (a greedy `start*end` glob, like neofetch). No-op if either
+/// marker is missing or `end` doesn't occur after `start`.
+fn remove_span(s: &mut String, start: &str, end: &str) {
+    let Some(a) = s.find(start) else { return };
+    let after = a + start.len();
+    let Some(rel) = s[after..].rfind(end) else {
+        return;
+    };
+    let b = after + rel + end.len();
+    s.replace_range(a..b, "");
 }
 
 /// Read the CPU's frequency from sysfs and render it as GHz, matching neofetch.
@@ -1412,8 +1581,46 @@ pub fn song_probe_fn(_opts: SongOptions) -> ProbeResultFunction {
 
 #[cfg(test)]
 mod tests {
-    use super::{clean_cpu_model, format_cpu};
+    use super::{clean_cpu_model, clean_model, format_cpu, normalize_wm, with_gtk_tag};
     use crate::config::{CoresMode, CpuOptions};
+
+    #[test]
+    fn wm_renames_match_neofetch() {
+        // libmacchina's lowercase "gnome-shell" -> "Mutter".
+        assert_eq!(normalize_wm("gnome-shell"), "Mutter");
+        assert_eq!(normalize_wm("GNOME Shell"), "Mutter");
+        assert_eq!(normalize_wm("WindowMaker"), "wmaker");
+        // Other WMs pass through untouched.
+        assert_eq!(normalize_wm("sway"), "sway");
+        assert_eq!(normalize_wm("KWin"), "KWin");
+    }
+
+    #[test]
+    fn gtk_theme_tags() {
+        // gsettings source -> [GTK2/3] (GNOME), ini fallback -> [GTK3].
+        assert_eq!(with_gtk_tag("Adwaita", true), "Adwaita [GTK2/3]");
+        assert_eq!(with_gtk_tag("Arc-Dark", false), "Arc-Dark [GTK3]");
+    }
+
+    #[test]
+    fn model_dmi_and_oem_cleanup() {
+        // Real motherboard string passes through (whitespace collapsed).
+        assert_eq!(
+            clean_model("Micro-Star International Co., Ltd. MEG X870E GODLIKE (MS-7E48)"),
+            "Micro-Star International Co., Ltd. MEG X870E GODLIKE (MS-7E48)"
+        );
+        // Dummy OEM placeholders are removed.
+        assert_eq!(clean_model("System manufacturer System Product Name"), "System manufacturer");
+        assert_eq!(clean_model("To be filled by O.E.M."), "");
+        assert_eq!(clean_model("Default string Default string"), "");
+        // A bare vendor with an empty product (trailing space from the join).
+        assert_eq!(clean_model("Dell Inc. "), "Dell Inc.");
+        // QEMU / KVM identifier wrapping.
+        assert_eq!(
+            clean_model("Standard PC (Q35 + ICH9, 2009)"),
+            "KVM/QEMU (Standard PC (Q35 + ICH9, 2009))"
+        );
+    }
 
     #[test]
     fn cpu_brand_off_drops_leading_token() {
@@ -1449,15 +1656,51 @@ mod tests {
 
     #[test]
     fn strips_intel_trademarks_and_cpu() {
+        // neofetch drops the marketing "Core" word too ("Core " -> " ").
         assert_eq!(
             clean_cpu_model("Intel(R) Core(TM) i7-11800H CPU"),
-            "Intel Core i7-11800H"
+            "Intel i7-11800H"
+        );
+        assert_eq!(
+            clean_cpu_model("Intel(R) Xeon(R) CPU E5-2680 v4"),
+            "Intel Xeon E5-2680 v4"
+        );
+        // "Core2" becomes "Core 2" (and is not stripped by the "Core " rule).
+        assert_eq!(
+            clean_cpu_model("Intel(R) Core(TM)2 Duo CPU E8400"),
+            "Intel Core 2 Duo E8400"
+        );
+    }
+
+    #[test]
+    fn strips_amd_apu_radeon_and_compute_cores() {
+        // A model word between Radeon/Graphics -> stripped.
+        assert_eq!(
+            clean_cpu_model("AMD Ryzen 5 3400G with Radeon Vega Graphics"),
+            "AMD Ryzen 5 3400G"
+        );
+        // Bare "with Radeon Graphics" (single space) is preserved.
+        assert_eq!(
+            clean_cpu_model("AMD Ryzen 7 5825U with Radeon Graphics"),
+            "AMD Ryzen 7 5825U with Radeon Graphics"
+        );
+        // Two-digit core counts and ", N Compute Cores".
+        assert_eq!(
+            clean_cpu_model("AMD Ryzen 9 5900X 12-Core Processor"),
+            "AMD Ryzen 9 5900X"
+        );
+        assert_eq!(
+            clean_cpu_model(
+                "AMD A10-7850K APU with Radeon(TM) R7 Graphics, 4 Compute Cores 2C+2G"
+            ),
+            "AMD A10-7850K APU 2C+2G"
         );
     }
 
     #[test]
     fn leaves_clean_names_untouched() {
         assert_eq!(clean_cpu_model("Apple M1"), "Apple M1");
+        assert_eq!(clean_cpu_model("AMD Ryzen 7 7800X3D"), "AMD Ryzen 7 7800X3D");
     }
 
     use super::{

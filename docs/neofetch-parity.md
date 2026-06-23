@@ -1,6 +1,8 @@
 # neofetch feature parity
 
-Parity assessed against neofetch [`ccd5d9f`][nf] — **dated 2026-06-14**.
+Parity assessed against neofetch [`ccd5d9f`][nf] — **dated 2026-06-14**,
+re-verified on **2026-06-22** by A/B-diffing `purr --stdout` against
+`neofetch --stdout` on a reference machine (Fedora Silverblue, GNOME/Wayland).
 
 [nf]: https://github.com/dylanaraps/neofetch/blob/ccd5d9f52609bbdcd5d8fa78c4fdb0f12954125f/neofetch
 
@@ -15,19 +17,19 @@ below with rationale, so the parity claim stays honest and auditable. Legend:
 |---|---|---|
 | title (user@host) | ✅ | `title_fqdn` supported |
 | OS / distro | ✅ | `distro_shorthand`, `os_arch` |
-| host / model | ✅ | |
+| host / model | ✅ | DMI `board_*`/`product_*` precedence + OEM-placeholder cleanup, like neofetch |
 | kernel | ✅ | `kernel_shorthand` |
 | uptime | ✅ | `uptime_shorthand` on/tiny/off |
-| packages | 🟡 | `package_managers` on/tiny/off; manager coverage = libmacchina's set (pacman, dpkg, rpm, dnf, apk, xbps, portage, nix, flatpak, snap, cargo, brew, pkg, …), not neofetch's full 60+ |
+| packages | 🟡 | `package_managers` on/tiny/off; manager coverage = libmacchina's set (pacman, dpkg, rpm, dnf, apk, xbps, portage, nix, flatpak, snap, cargo, brew, pkg, …), not neofetch's full 60+. libmacchina also counts `cargo` (neofetch doesn't), labels Homebrew `Homebrew` (neofetch `brew`), and some counts (e.g. flatpak) differ slightly |
 | shell | ✅ | `shell_path`, `shell_version` |
 | resolution | 🟡 | shown; `refresh_rate` option exists but the Hz data source is not yet wired |
-| DE | ✅ | `de_version` (GNOME/Plasma/Xfce/MATE/Cinnamon/Budgie/LXQt) |
-| WM / WM theme | ✅ | |
-| theme / icons / font | ✅ | GTK via gsettings + GTK3 ini; `gtk2`/`gtk3` split not separately exposed |
+| DE | ✅ | `de_version` (GNOME/Plasma/Xfce/MATE/Cinnamon/Budgie/LXQt); ` (Wayland)` suffix on Wayland sessions |
+| WM / WM theme | ✅ | `gnome-shell`→`Mutter` rename (and `wmaker`) like neofetch |
+| theme / icons / font | ✅ | GTK via gsettings + GTK3 ini; appends neofetch's `[GTK2/3]` (gsettings) / `[GTK3]` (ini) tag. Per-DE gtk2≠gtk3 split is not separately probed (font tag not applied — font is opt-in) |
 | terminal / terminal font | ✅ | |
-| CPU | ✅ | `cpu_brand`, `cpu_cores` (logical/physical/off), `cpu_speed`, `speed_type`, `speed_shorthand` |
+| CPU | ✅ | `cpu_brand`, `cpu_cores` (logical/physical/off), `cpu_speed`, `speed_type`, `speed_shorthand`; full neofetch model-string cleanup (drops "Core", "with Radeon … Graphics", core counts, etc.) |
 | CPU temperature | ⏸ | deferred — off by default in neofetch, platform-fiddly (hwmon/thermal) |
-| GPU | ✅ | `gpu_brand`, `gpu_type` (all/dedicated/integrated, best-effort heuristic) |
+| GPU | 🟡 | `gpu_brand`, `gpu_type` (all/dedicated/integrated, best-effort heuristic). Names come from libmacchina and can differ from neofetch's `lspci` formatting (e.g. no `AMD ATI` vendor prefix; keeps the `[…]` bracketed device name) |
 | GPU driver | ✅ | Linux PCI sysfs |
 | memory | ✅ | `memory_unit` (kib/mib/gib), `memory_percent` |
 | disk | ✅ | `disk_show`, `disk_subtitle` (mount/name/dir/none), `disk_percent` |
@@ -50,7 +52,7 @@ neofetch features).
 | neofetch | purr | notes |
 |---|---|---|
 | separator, bold, underline_char | ✅ | |
-| colors (6 text slots) | ✅ | `[title, @, underline, subtitle, colon, info]` |
+| colors (6 text slots) | ✅ | `[title, @, underline, subtitle, colon, info]`. Default scheme matches neofetch's `set_text_colors` (title = logo c1, subtitle = c2, and `@`/underline/colon/value in the terminal's default foreground) |
 | ascii_distro / ascii_colors / ascii_bold | ✅ | runtime `${c1}`..`${c6}` expansion |
 | custom ASCII art format | ✅ | neofetch `${cN}` + `# set_colors` headers (drop-in) |
 | `--stdout` (no colour) | ✅ | honours `NO_COLOR` |
