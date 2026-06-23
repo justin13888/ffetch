@@ -339,6 +339,20 @@ fn with_gtk_tag(value: &str, from_gsettings: bool) -> String {
     format!("{value} {tag}")
 }
 
+/// Apply neofetch's window-manager renames (`*GNOME*Shell*` -> "Mutter",
+/// `*WINDOWMAKER*` -> "wmaker"). Done case-insensitively so libmacchina's
+/// lowercase process name "gnome-shell" maps to "Mutter" like neofetch.
+fn normalize_wm(name: &str) -> String {
+    let lower = name.to_ascii_lowercase();
+    if lower.contains("gnome") && lower.contains("shell") {
+        "Mutter".to_string()
+    } else if lower.contains("windowmaker") {
+        "wmaker".to_string()
+    } else {
+        name.to_string()
+    }
+}
+
 #[instrument(level = "debug")]
 fn detect_terminal_font() -> Result<String, ProbeError> {
     use libmacchina::traits::GeneralReadout as _;
@@ -666,9 +680,9 @@ impl From<ProbeType> for ProbeResultFunction {
                 Ok(ProbeResultValue::Single(ProbeValue::DE(name, version)))
             }),
             ProbeType::WM => Box::new(|| {
-                Ok(ProbeResultValue::Single(ProbeValue::WM(
-                    general_readout().window_manager()?,
-                )))
+                Ok(ProbeResultValue::Single(ProbeValue::WM(normalize_wm(
+                    &general_readout().window_manager()?,
+                ))))
             }),
             ProbeType::WMTheme => Box::new(|| {
                 // macOS: "<accent> (<interface style>)", e.g. "Blue (Dark)", from
@@ -1567,8 +1581,19 @@ pub fn song_probe_fn(_opts: SongOptions) -> ProbeResultFunction {
 
 #[cfg(test)]
 mod tests {
-    use super::{clean_cpu_model, clean_model, format_cpu, with_gtk_tag};
+    use super::{clean_cpu_model, clean_model, format_cpu, normalize_wm, with_gtk_tag};
     use crate::config::{CoresMode, CpuOptions};
+
+    #[test]
+    fn wm_renames_match_neofetch() {
+        // libmacchina's lowercase "gnome-shell" -> "Mutter".
+        assert_eq!(normalize_wm("gnome-shell"), "Mutter");
+        assert_eq!(normalize_wm("GNOME Shell"), "Mutter");
+        assert_eq!(normalize_wm("WindowMaker"), "wmaker");
+        // Other WMs pass through untouched.
+        assert_eq!(normalize_wm("sway"), "sway");
+        assert_eq!(normalize_wm("KWin"), "KWin");
+    }
 
     #[test]
     fn gtk_theme_tags() {
