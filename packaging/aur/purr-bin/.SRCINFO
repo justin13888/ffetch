@@ -1,0 +1,18 @@
+pkgbase = purr-bin
+	pkgdesc = Fast, neofetch-compatible system information tool (prebuilt binary)
+	pkgver = 1.0.0
+	pkgrel = 1
+	url = https://github.com/justin13888/purrfetch
+	arch = x86_64
+	arch = aarch64
+	license = MIT
+	provides = purr
+	conflicts = purr
+	options = !strip
+	options = !debug
+	source_x86_64 = purr-1.0.0-x86_64.tar.xz::https://github.com/justin13888/purrfetch/releases/download/v1.0.0/purrfetch-x86_64-unknown-linux-gnu.tar.xz
+	sha256sums_x86_64 = SKIP
+	source_aarch64 = purr-1.0.0-aarch64.tar.xz::https://github.com/justin13888/purrfetch/releases/download/v1.0.0/purrfetch-aarch64-unknown-linux-gnu.tar.xz
+	sha256sums_aarch64 = SKIP
+
+pkgname = purr-bin
