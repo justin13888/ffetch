@@ -2,3 +2,6 @@
 bench-results.*
 bench-cold-results.*
 purr-trace.json
+# Packaging build artifacts (cargo vendor output + COPR rpmbuild tree)
+/vendor
+/.copr/rpmbuild

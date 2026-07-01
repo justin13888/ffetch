@@ -18,6 +18,44 @@ path-guid = "4B2EC565-91AD-463B-AFA1-EAA5C297362A"
 license = false
 eula = false
 
+# Debian/Ubuntu package, built with `cargo deb` (see .github/workflows/package-linux.yml).
+# The package is `purrfetch`; the installed command is `purr`. Runtime deps are
+# auto-derived from the binary via dpkg-shlibdeps ($auto).
+[package.metadata.deb]
+maintainer = "justin13888 <20733699+justin13888@users.noreply.github.com>"
+copyright = "2026 justin13888"
+license-file = ["LICENSE", "0"]
+extended-description = "Fast, neofetch-compatible system information tool written in Rust. Prints a neofetch-style report with parallel probes. The installed command is `purr`."
+section = "utils"
+priority = "optional"
+depends = "$auto"
+assets = [
+    ["target/release/purr", "usr/bin/", "755"],
+    ["man/purr.1", "usr/share/man/man1/", "644"],
+    ["completions/purr.bash", "usr/share/bash-completion/completions/purr", "644"],
+    ["completions/_purr", "usr/share/zsh/site-functions/_purr", "644"],
+    ["completions/purr.fish", "usr/share/fish/vendor_completions.d/purr.fish", "644"],
+    ["README.md", "usr/share/doc/purrfetch/README.md", "644"],
+]
+
+# RPM package, built with `cargo generate-rpm` (see package-linux.yml). This is a
+# convenience .rpm attached to releases (download + `dnf install`); the Fedora
+# COPR repo builds from source via packaging/rpm/purrfetch.spec instead.
+# auto_req = "builtin" derives library deps from the ELF, so it works on the
+# (Ubuntu) CI host without rpm's find-requires.
+[package.metadata.generate-rpm]
+summary = "Fast, neofetch-compatible system information tool"
+auto_req = "builtin"
+assets = [
+    { source = "target/release/purr", dest = "/usr/bin/purr", mode = "0755" },
+    { source = "man/purr.1", dest = "/usr/share/man/man1/purr.1", mode = "0644", doc = false },
+    { source = "completions/purr.bash", dest = "/usr/share/bash-completion/completions/purr", mode = "0644" },
+    { source = "completions/_purr", dest = "/usr/share/zsh/site-functions/_purr", mode = "0644" },
+    { source = "completions/purr.fish", dest = "/usr/share/fish/vendor_completions.d/purr.fish", mode = "0644" },
+    { source = "LICENSE", dest = "/usr/share/licenses/purrfetch/LICENSE", mode = "0644", doc = true },
+    { source = "README.md", dest = "/usr/share/doc/purrfetch/README.md", mode = "0644", doc = true },
+]
+
 # Config for 'dist'
 [workspace.metadata.dist]
 # The preferred dist version to use in CI (Cargo.toml SemVer syntax)
