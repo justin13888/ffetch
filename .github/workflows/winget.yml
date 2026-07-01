@@ -14,9 +14,13 @@
 name: Submit to winget
 
 on:
-  release:
-    # `released` fires only for published, non-prerelease, non-draft releases.
-    types: [released]
+  # cargo-dist creates the GitHub Release with the default GITHUB_TOKEN, which does
+  # NOT trigger `on: release`. So we chain off the Release workflow completing instead
+  # (a tag push runs Release; its head_branch is the tag). workflow_dispatch stays as a
+  # manual re-run path.
+  workflow_run:
+    workflows: ["Release"]
+    types: [completed]
   workflow_dispatch:
     inputs:
       release-tag:
@@ -27,8 +31,13 @@ jobs:
   winget:
     name: Submit purr to winget-pkgs
     runs-on: ubuntu-latest
-    # Don't run on forks.
-    if: ${{ github.repository_owner == 'justin13888' }}
+    # Owner-only; and when chained, only for a successful Release triggered by a tag
+    # push (skip the pull_request dry-runs of Release).
+    if: >-
+      github.repository_owner == 'justin13888' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.event == 'push'))
     steps:
       - name: Check for WINGET_TOKEN
         id: guard
@@ -46,5 +55,5 @@ jobs:
         with:
           identifier: justin13888.purr
           installers-regex: '\.msi$'
-          release-tag: ${{ github.event.inputs.release-tag || github.event.release.tag_name }}
+          release-tag: ${{ github.event.inputs.release-tag || github.event.workflow_run.head_branch }}
           token: ${{ secrets.WINGET_TOKEN }}

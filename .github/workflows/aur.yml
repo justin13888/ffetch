@@ -1,5 +1,9 @@
 # Publishes purr-bin and purr-git to the AUR on each stable release.
 #
+# TODO(deferred): the AUR channel is not live yet. It self-skips until the one-time
+# setup below is done — re-enable it simply by completing that setup; no workflow
+# edit needed. See packaging/README.md.
+#
 # One-time manual setup (see packaging/README.md):
 #   - create an AUR account and add your SSH public key
 #   - create the empty AUR packages `purr-bin` and `purr-git` (first push)
@@ -8,8 +12,11 @@
 name: Deploy to AUR
 
 on:
-  release:
-    types: [released]
+  # cargo-dist creates the GitHub Release with the default GITHUB_TOKEN, which does
+  # NOT trigger `on: release`; chain off the Release workflow completing instead.
+  workflow_run:
+    workflows: ["Release"]
+    types: [completed]
   workflow_dispatch:
     inputs:
       release-tag:
@@ -20,13 +27,19 @@ jobs:
   aur:
     name: Publish ${{ matrix.pkg }}
     runs-on: ubuntu-latest
-    if: ${{ github.repository_owner == 'justin13888' }}
+    # Owner-only; and when chained, only for a successful Release triggered by a tag
+    # push (skip the pull_request dry-runs of Release).
+    if: >-
+      github.repository_owner == 'justin13888' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.event == 'push'))
     strategy:
       fail-fast: false
       matrix:
         pkg: [purr-bin, purr-git]
     env:
-      TAG: ${{ github.event.inputs.release-tag || github.event.release.tag_name }}
+      TAG: ${{ github.event.inputs.release-tag || github.event.workflow_run.head_branch }}
     steps:
       - uses: actions/checkout@v4
 

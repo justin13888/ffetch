@@ -50,21 +50,15 @@ curl --proto '=https' --tlsv1.2 -LsSf https://github.com/justin13888/purrfetch/r
 powershell -ExecutionPolicy Bypass -c "irm https://github.com/justin13888/purrfetch/releases/latest/download/purrfetch-installer.ps1 | iex"
 ```
 
+<!-- TODO(packaging): re-enable Alpine once the APKBUILD is accepted into alpinelinux/aports (needs the v1.0.0 release tarball + `abuild checksum`). -->
 ### Alpine Linux
 
-```bash
-apk add purr
-```
+_Planned._ The [`APKBUILD`](packaging/alpine/APKBUILD) is available to build from in the meantime; upstreaming into the Alpine repositories (`apk add purr`) is pending.
 
-Pending acceptance into the Alpine repositories; the [`APKBUILD`](packaging/alpine/APKBUILD) is available to build in the meantime.
-
+<!-- TODO(packaging): re-enable AUR once an AUR account + AUR_SSH_PRIVATE_KEY secret are set up; aur.yml then deploys purr-bin/purr-git automatically on each release. -->
 ### Arch Linux
 
-Install from the AUR with your favorite helper — `purr-bin` (prebuilt) or `purr-git` (build from source):
-
-```bash
-paru -S purr-bin
-```
+_Planned._ AUR recipes for `purr-bin` (prebuilt) and `purr-git` (build from source) live in [`packaging/aur/`](packaging/aur/); publishing to the AUR (`paru -S purr-bin`) is not yet live.
 
 ### Debian/Ubuntu and derivatives
 
@@ -76,14 +70,14 @@ sudo dpkg -i purrfetch_*_amd64.deb
 
 ### Fedora
 
-Install from the [COPR repository](https://copr.fedorainfracloud.org/coprs/justin13888/purr/):
+Grab the `.rpm` from the [latest release](https://github.com/justin13888/purrfetch/releases/latest) and install it:
 
 ```bash
-sudo dnf copr enable justin13888/purr
-sudo dnf install purr
+sudo dnf install ./purrfetch-*.rpm
 ```
 
-Or grab the `.rpm` from the [latest release](https://github.com/justin13888/purrfetch/releases/latest) and run `sudo dnf install ./purrfetch-*.rpm`.
+<!-- TODO(packaging): re-enable COPR once the copr project justin13888/purr is created with a Git-built package (.copr/Makefile) + GitHub webhook. -->
+_A Fedora COPR repository (`sudo dnf copr enable justin13888/purr && sudo dnf install purr`) is planned._
 
 ### Nix
 
@@ -106,7 +100,7 @@ brew install justin13888/tap/purr
 winget install justin13888.purr
 ```
 
-> The native packages (Alpine, Arch, Debian/Ubuntu, Fedora, Nix) also install the `man purr` page and bash/zsh/fish shell completions.
+> The native packages (Debian/Ubuntu `.deb`, Fedora `.rpm`, Nix) also install the `man purr` page and bash/zsh/fish shell completions.
 
 ### Git
 
