@@ -30,16 +30,16 @@ cargo install --locked purrfetch
 
 ### Prebuilt binaries
 
-Download a binary for your platform from the [latest release](https://github.com/justin13888/purr/releases/latest), or use the install script:
+Download a binary for your platform from the [latest release](https://github.com/justin13888/purrfetch/releases/latest), or use the install script:
 
 ```bash
 # Linux & macOS
-curl --proto '=https' --tlsv1.2 -LsSf https://github.com/justin13888/purr/releases/latest/download/purrfetch-installer.sh | sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/justin13888/purrfetch/releases/latest/download/purrfetch-installer.sh | sh
 ```
 
 ```powershell
 # Windows
-powershell -ExecutionPolicy Bypass -c "irm https://github.com/justin13888/purr/releases/latest/download/purrfetch-installer.ps1 | iex"
+powershell -ExecutionPolicy Bypass -c "irm https://github.com/justin13888/purrfetch/releases/latest/download/purrfetch-installer.ps1 | iex"
 ```
 
 <!-- ### Alpine Linux -->
@@ -171,12 +171,15 @@ mise run lint         # auto-fix clippy lints, then verify
 mise run fmt-check    # verify formatting without modifying files
 mise run lint-check   # verify clippy lints without modifying files
 mise run man          # regenerate man/purr.1 from the CLI definition
+mise run completions  # regenerate shell completions in completions/
 mise run svg          # regenerate assets/purr.svg demo screenshot (requires freeze)
 ```
 
-The man page (`man/purr.1`) is generated from the `clap` CLI by
-`examples/gen-man.rs`, so it never drifts from `purr --help`. Run `mise run man`
-after changing any flags (`mise run man-check` verifies it is in sync).
+The man page (`man/purr.1`) and the shell completions (`completions/`) are
+generated from the `clap` CLI by `examples/gen-man.rs` and
+`examples/gen-completions.rs`, so they never drift from `purr --help`. Run
+`mise run man` and `mise run completions` after changing any flags
+(`mise run man-check` / `mise run completions-check` verify they are in sync).
 
 ### Git Hooks
 
@@ -258,7 +261,7 @@ If you encounter any issues, please open an issue on the GitHub repository.
 
 Feel free to submit an issue or PR on GitHub.
 
-> Notice: Looking for submissions/suggestions of new ASCII arts: <https://github.com/justin13888/purr/issues/1>
+> Notice: Looking for submissions/suggestions of new ASCII arts: <https://github.com/justin13888/purrfetch/issues/1>
 
 ## License
 

@@ -1,15 +1,22 @@
 [package]
 name = "purrfetch"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2024"
+rust-version = "1.85"
 authors = ["justin13888 <20733699+justin13888@users.noreply.github.com>"]
 description = "Fast, featureful, cross-platform fetching tool written in Rust "
 readme = "README.md"
-repository = "https://github.com/justin13888/purr"
-homepage = "https://github.com/justin13888/purr"
+repository = "https://github.com/justin13888/purrfetch"
+homepage = "https://github.com/justin13888/purrfetch"
 license = "MIT"
 keywords = ["system", "cli", "fetch"]
 publish = true
+
+[package.metadata.wix]
+upgrade-guid = "18828CE8-1773-4003-849C-300ADEC18B80"
+path-guid = "4B2EC565-91AD-463B-AFA1-EAA5C297362A"
+license = false
+eula = false
 
 # Config for 'dist'
 [workspace.metadata.dist]
@@ -18,7 +25,7 @@ cargo-dist-version = "0.32.0"
 # CI backends to support
 ci = "github"
 # The installers to generate for each app
-installers = ["shell", "powershell", "homebrew"]
+installers = ["shell", "powershell", "homebrew", "msi"]
 # A GitHub repo to push Homebrew formulas to
 tap = "justin13888/homebrew-tap"
 # Homebrew formula/command name. The crate publishes as `purrfetch` (the crates.io
@@ -32,8 +39,9 @@ targets = ["aarch64-apple-darwin", "aarch64-unknown-linux-gnu", "x86_64-apple-da
 install-path = "CARGO_HOME"
 # Whether to install an updater program
 install-updater = false
-# Extra files to bundle in every release archive (the man page; regenerate with `mise run man`)
-include = ["man/purr.1"]
+# Extra files to bundle in every release archive (the man page and shell
+# completions; regenerate with `mise run man` / `mise run completions`)
+include = ["man/purr.1", "completions"]
 
 [lib]
 name = "purr_lib"
@@ -74,6 +82,8 @@ tracing-subscriber = { version = "0.3.22", features = [
 [dev-dependencies]
 # Renders `man/purr.1` from the clap CLI; see `examples/gen-man.rs`.
 clap_mangen = "0.2.30"
+# Renders the static shell completions in `completions/`; see `examples/gen-completions.rs`.
+clap_complete = "4.5"
 criterion = { version = "0.8.2", features = ["html_reports"] }
 
 [profile.release]
