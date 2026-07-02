@@ -1,14 +1,17 @@
 [workspace]
-# release-plz owns version bumping, CHANGELOG.md, and the release PR. In CI it runs
-# `command: release-pr` only, on the default GITHUB_TOKEN (no PAT, no crates.io token).
-# The git tag and crates.io publish are done MANUALLY at release-cut time: the owner
-# pushes `v{version}` locally (which triggers cargo-dist) and runs `cargo publish`
-# (see packaging/README.md). The git_tag_* settings below apply only if you instead run
-# `release-plz release` locally.
-# cargo-dist owns the GitHub Release + binaries + Homebrew, so disable release-plz's GitHub release.
+# release-plz owns version bumping, CHANGELOG.md, the release PR, and the crates.io
+# publish. In CI (see .github/workflows/release-plz.yml) it runs two commands on the
+# default GITHUB_TOKEN — no PAT, no crates.io token:
+#   - `release-pr`: opens/updates the version-bump + CHANGELOG.md PR.
+#   - `release`:    on merge of that PR, publishes to crates.io via Trusted Publishing
+#                   (OIDC, id-token: write) — never a registry token, never a fallback.
+# It does NOT create the git tag or GitHub release: cargo-dist owns the tag-triggered
+# binary release + Homebrew, so the owner pushes `v{version}` locally to kick it off
+# (a GITHUB_TOKEN-pushed tag would not trigger release.yml, and a PAT is disallowed).
+# See packaging/README.md.
 changelog_update   = true
-git_tag_enable     = true
-git_release_enable = false
-git_tag_name       = "v{{ version }}"  # single-package tag; must match cargo-dist's release.yml trigger
-semver_check       = false             # purr is primarily a binary; skip cargo-semver-checks noise
+git_tag_enable     = false            # cargo-dist is tag-driven; the owner pushes the tag locally
+git_release_enable = false            # cargo-dist owns the GitHub Release + binaries + Homebrew
+git_tag_name       = "v{{ version }}" # must match cargo-dist's release.yml trigger if tagging is re-enabled
+semver_check       = false            # purr is primarily a binary; skip cargo-semver-checks noise
 pr_labels          = ["release"]
