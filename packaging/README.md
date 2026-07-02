@@ -13,14 +13,17 @@ need to ship the `purr` binary, `man/purr.1`, the `completions/`, and `LICENSE`.
 
 | Tool | Owns |
 |------|------|
-| [release-plz](https://release-plz.dev) | version bump, `CHANGELOG.md`, and the "release" PR (runs on the default `GITHUB_TOKEN` — no PAT, no crates.io token) |
+| [release-plz](https://release-plz.dev) | version bump, `CHANGELOG.md`, the "release" PR, and the crates.io publish (runs on the default `GITHUB_TOKEN`, no PAT; crates.io via Trusted Publishing OIDC, no token) |
 | [dist (cargo-dist)](https://opensource.axo.dev/cargo-dist/) | GitHub Release: binaries for 5 targets + `shell`/`powershell`/`homebrew`/`msi` installers; bundles `man/purr.1` + `completions/` into every archive |
 
-The release is **cut manually** after merging the release-plz PR: the owner pushes the
-`v{version}` tag and publishes to crates.io locally (see the runbook below). The tag
-push triggers cargo-dist's `release.yml`; `.deb`/`.rpm`/winget then chain off that
-workflow **completing** — a cargo-dist release is created with `GITHUB_TOKEN`, which
-does **not** trigger `on: release`, so those workflows use `on: workflow_run` instead.
+On merge of the release-plz PR, release-plz publishes to crates.io automatically via
+Trusted Publishing (OIDC, no token). The GitHub binaries are still **cut manually**: the
+owner pushes the `v{version}` tag locally (see the runbook below), which triggers
+cargo-dist's `release.yml`; `.deb`/`.rpm`/winget/Homebrew-completions then chain off that
+workflow **completing** — a cargo-dist release is created with `GITHUB_TOKEN`, which does
+**not** trigger `on: release`, so those workflows use `on: workflow_run` instead. The tag
+is pushed by the owner (not release-plz) for the same reason: a `GITHUB_TOKEN`-pushed tag
+would not trigger `release.yml`, and a PAT is disallowed by policy.
 
 > **Note on cargo-dist and Linux packages.** cargo-dist produces archives and
 > the `shell`/`powershell`/`homebrew`/`msi` installers, but it does **not** build
@@ -40,7 +43,7 @@ does **not** trigger `on: release`, so those workflows use `on: workflow_run` in
 
 | Channel | Recipe | Built / submitted by | One-time manual setup |
 |---------|--------|----------------------|------------------------|
-| crates.io | `Cargo.toml` | manual local `cargo publish`, or `crates-io-publish.yml` once enabled | `cargo login` locally, or set up Trusted Publishing (see Follow-ups) |
+| crates.io | `Cargo.toml` | release-plz `release` job — crates.io Trusted Publishing (OIDC), no token | one-time: configure the crates.io Trusted Publisher + one manual first `cargo publish` (see runbook) |
 | GitHub Release (bins, installers) | `[workspace.metadata.dist]` | cargo-dist `release.yml` | none — owner pushes the tag locally |
 | Homebrew | cargo-dist `homebrew` installer + `homebrew-completions.yml` | cargo-dist → `justin13888/homebrew-tap`, then the workflow adds completions/man | ✅ tap repo + `HOMEBREW_TAP_TOKEN` (done) |
 | winget | `wix/main.wxs` (msi) | `winget.yml` (chains on `workflow_run: Release`) | ✅ `winget-pkgs` fork + `WINGET_TOKEN` (done) |
@@ -65,7 +68,7 @@ packaging/
   alpine/APKBUILD
   rpm/purrfetch.spec
 .github/workflows/{package-linux,winget,aur,homebrew-completions}.yml  # chain on `workflow_run: Release` (aur deferred)
-.github/workflows/crates-io-publish.yml            # tag-triggered crates.io publish (Trusted Publishing; gated off)
+.github/workflows/release-plz.yml                  # release PR + crates.io publish (Trusted Publishing)
 ```
 
 ## Self-verification (podman)
@@ -111,8 +114,9 @@ podman run --rm -v "$PWD":/repo:Z -w /repo rhysd/actionlint:latest
 
 ## Manual runbook (owner-only)
 
-The pipeline is **token-free**: no PAT and no crates.io token live in CI. The owner
-cuts each release locally.
+The pipeline is **token-free**: no PAT and no crates.io token live in CI (crates.io uses
+Trusted Publishing). The owner drives each release by merging the release PR and pushing
+the tag.
 
 **One-time setup**
 - ✅ `justin13888/homebrew-tap` repo + `HOMEBREW_TAP_TOKEN` secret — done.
@@ -124,35 +128,33 @@ cuts each release locally.
     the release.
 - ✅ Repo setting *Settings → Actions → General → "Allow GitHub Actions to create and
   approve pull requests"* — enabled (lets release-plz open the PR on `GITHUB_TOKEN`).
-- `cargo login` on your machine with a crates.io token so the manual `cargo publish`
-  works. The token stays local; it is never added to CI.
+- **crates.io Trusted Publishing.** On crates.io, configure a Trusted Publisher for the
+  `purrfetch` crate: owner `justin13888`, repo `purrfetch`, workflow `release-plz.yml`
+  (see https://crates.io/docs/trusted-publishing). No token is ever added to CI.
+  - ⚠️ **First publish is manual.** Trusted Publishing cannot publish a brand-new crate,
+    so publish the very first version once with a local `cargo publish` (`cargo login`
+    first; the token stays local). Every version after that publishes automatically in CI.
 
 **Cutting a release**
 1. A push to `master` opens/updates the release-plz PR (version bump + `CHANGELOG.md`).
-2. Merge that PR.
-3. Locally, cut the release:
+2. Merge that PR. On merge, the `release-plz release` job publishes the new version to
+   crates.io via Trusted Publishing (no token). It does **not** tag or build binaries.
+3. Locally, push the tag to trigger the GitHub binary release:
    ```bash
    git checkout master && git pull
    git tag v1.0.0
    git push origin v1.0.0   # human push → triggers cargo-dist's release.yml
-   cargo publish            # crates.io (last; until Trusted Publishing)
    ```
    cargo-dist builds the GitHub Release (tarballs, `.msi`, installers, Homebrew
    formula → tap). When it finishes, `package-linux.yml` (`.deb`/`.rpm`),
    `winget.yml`, and `homebrew-completions.yml` (adds completions/man to the tap
    formula) chain off it via `workflow_run`.
-4. Confirm the cascade: `.deb`/`.rpm` attached to the release, winget PR opened, tap
-   updated with a follow-up "install shell completions and man page" commit. If a
-   chained job didn't run, re-run it via its `workflow_dispatch`, e.g.
+4. Confirm the cascade: version live on crates.io, `.deb`/`.rpm` attached to the release,
+   winget PR opened, tap updated with a follow-up "install shell completions and man page"
+   commit. If a chained job didn't run, re-run it via its `workflow_dispatch`, e.g.
    `gh workflow run package-linux.yml -f release-tag=v1.0.0`.
 
 **Follow-ups (optional / deferred)**
-- **Trusted Publishing.** The tokenless, tag-triggered publish workflow already exists
-  (`.github/workflows/crates-io-publish.yml`) but is gated off. To enable: on crates.io,
-  configure a Trusted Publisher for the `purrfetch` crate (owner `justin13888`, repo
-  `purrfetch`, workflow `crates-io-publish.yml`), then set the repo variable
-  `CRATES_IO_TRUSTED_PUBLISHING=true`. After that, tag pushes publish automatically —
-  drop the manual `cargo publish` (step 3 above) from the runbook.
 - **AUR.** Create an AUR account; add your SSH public key; create empty packages
   `purr-bin` and `purr-git`; add the `AUR_SSH_PRIVATE_KEY` secret. `aur.yml` then
   deploys on each release (no workflow edit needed — it already chains on Release).
