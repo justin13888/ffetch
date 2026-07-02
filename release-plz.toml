@@ -1,5 +1,10 @@
 [workspace]
-# release-plz owns version bumping, CHANGELOG.md, the git tag, and crates.io publishing.
+# release-plz owns version bumping, CHANGELOG.md, and the release PR. In CI it runs
+# `command: release-pr` only, on the default GITHUB_TOKEN (no PAT, no crates.io token).
+# The git tag and crates.io publish are done MANUALLY at release-cut time: the owner
+# pushes `v{version}` locally (which triggers cargo-dist) and runs `cargo publish`
+# (see packaging/README.md). The git_tag_* settings below apply only if you instead run
+# `release-plz release` locally.
 # cargo-dist owns the GitHub Release + binaries + Homebrew, so disable release-plz's GitHub release.
 changelog_update   = true
 git_tag_enable     = true

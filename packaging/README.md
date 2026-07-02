@@ -13,11 +13,14 @@ need to ship the `purr` binary, `man/purr.1`, the `completions/`, and `LICENSE`.
 
 | Tool | Owns |
 |------|------|
-| [release-plz](https://release-plz.dev) | version bump, `CHANGELOG.md`, git tag `v{version}`, crates.io publish |
+| [release-plz](https://release-plz.dev) | version bump, `CHANGELOG.md`, and the "release" PR (runs on the default `GITHUB_TOKEN` — no PAT, no crates.io token) |
 | [dist (cargo-dist)](https://opensource.axo.dev/cargo-dist/) | GitHub Release: binaries for 5 targets + `shell`/`powershell`/`homebrew`/`msi` installers; bundles `man/purr.1` + `completions/` into every archive |
 
-Merging the release-plz PR tags `v{version}`, which triggers cargo-dist's
-`release.yml`. Everything below keys off that GitHub Release.
+The release is **cut manually** after merging the release-plz PR: the owner pushes the
+`v{version}` tag and publishes to crates.io locally (see the runbook below). The tag
+push triggers cargo-dist's `release.yml`; `.deb`/`.rpm`/winget then chain off that
+workflow **completing** — a cargo-dist release is created with `GITHUB_TOKEN`, which
+does **not** trigger `on: release`, so those workflows use `on: workflow_run` instead.
 
 > **Note on cargo-dist and Linux packages.** cargo-dist produces archives and
 > the `shell`/`powershell`/`homebrew`/`msi` installers, but it does **not** build
@@ -29,15 +32,15 @@ Merging the release-plz PR tags `v{version}`, which triggers cargo-dist's
 
 | Channel | Recipe | Built / submitted by | One-time manual setup |
 |---------|--------|----------------------|------------------------|
-| crates.io | `Cargo.toml` | release-plz | `CARGO_REGISTRY_TOKEN` secret |
-| GitHub Release (bins, installers) | `[workspace.metadata.dist]` | cargo-dist `release.yml` | `RELEASE_PLZ_TOKEN` secret |
-| Homebrew | cargo-dist `homebrew` installer | cargo-dist → `justin13888/homebrew-tap` | create the `homebrew-tap` repo + `HOMEBREW_TAP_TOKEN` secret |
-| winget | `wix/main.wxs` (msi) | `.github/workflows/winget.yml` | fork `microsoft/winget-pkgs` + `WINGET_TOKEN` secret |
-| `.deb` / `.rpm` (download) | `[package.metadata.deb]`, `[package.metadata.generate-rpm]` | `.github/workflows/package-linux.yml` | none (attached to the release) |
-| Fedora COPR | `packaging/rpm/purrfetch.spec` + `.copr/Makefile` | COPR (build-from-git) | create COPR project `justin13888/purr` + webhook |
-| AUR | `packaging/aur/purr-bin`, `packaging/aur/purr-git` | `.github/workflows/aur.yml` | AUR account + `AUR_SSH_PRIVATE_KEY` secret; create the empty packages |
-| Alpine | `packaging/alpine/APKBUILD` | manual MR to `alpinelinux/aports` | Alpine developer account |
-| Nix | `flake.nix` (repo root) | `nix run github:justin13888/purrfetch` | optional: submit to nixpkgs |
+| crates.io | `Cargo.toml` | manual local `cargo publish` (→ Trusted Publishing) | `cargo login` locally — **no CI secret** |
+| GitHub Release (bins, installers) | `[workspace.metadata.dist]` | cargo-dist `release.yml` | none — owner pushes the tag locally |
+| Homebrew | cargo-dist `homebrew` installer | cargo-dist → `justin13888/homebrew-tap` | ✅ tap repo + `HOMEBREW_TAP_TOKEN` (done) |
+| winget | `wix/main.wxs` (msi) | `winget.yml` (chains on `workflow_run: Release`) | ✅ `winget-pkgs` fork + `WINGET_TOKEN` (done) |
+| `.deb` / `.rpm` (download) | `[package.metadata.deb]`, `[package.metadata.generate-rpm]` | `package-linux.yml` (chains on `workflow_run: Release`) | none (attached to the release) |
+| Fedora COPR — *deferred* | `packaging/rpm/purrfetch.spec` + `.copr/Makefile` | COPR (build-from-git) | create COPR project `justin13888/purr` + webhook |
+| AUR — *deferred* | `packaging/aur/purr-bin`, `packaging/aur/purr-git` | `aur.yml` (chains on `workflow_run: Release`) | AUR account + `AUR_SSH_PRIVATE_KEY` secret; create the empty packages |
+| Alpine — *deferred* | `packaging/alpine/APKBUILD` | manual MR to `alpinelinux/aports` | Alpine developer account |
+| Nix | `flake.nix` (repo root) | `nix run github:justin13888/purrfetch` | ✅ works today; optional: submit to nixpkgs |
 
 ## Layout
 
@@ -53,7 +56,7 @@ packaging/
   aur/purr-git/{PKGBUILD,.SRCINFO}
   alpine/APKBUILD
   rpm/purrfetch.spec
-.github/workflows/{package-linux,winget,aur}.yml   # all `on: release`
+.github/workflows/{package-linux,winget,aur}.yml   # chain on `workflow_run: Release` (aur deferred)
 ```
 
 ## Self-verification (podman)
@@ -99,23 +102,42 @@ podman run --rm -v "$PWD":/repo:Z -w /repo rhysd/actionlint:latest
 
 ## Manual runbook (owner-only)
 
-Most channels need the **first GitHub Release to exist** before they can submit
-(they consume release assets). Order:
+The pipeline is **token-free**: no PAT and no crates.io token live in CI. The owner
+cuts each release locally.
 
-1. **Secrets & tap.** Create the empty repo `justin13888/homebrew-tap`. Add repo
-   secrets: `CARGO_REGISTRY_TOKEN` (crates.io), `RELEASE_PLZ_TOKEN` (PAT, repo +
-   workflow), `HOMEBREW_TAP_TOKEN` (PAT that can push to the tap).
-2. **First release.** Merge the release-plz PR → it tags `v1.0.0` → cargo-dist
-   builds the release (tarballs, `.msi`, installers, Homebrew formula).
-3. **winget.** Fork `microsoft/winget-pkgs`; add `WINGET_TOKEN` (classic PAT,
-   `public_repo`). `winget.yml` then opens the PR automatically on each release.
-4. **AUR.** Create an AUR account; add your SSH public key; create empty packages
-   `purr-bin` and `purr-git`; add `AUR_SSH_PRIVATE_KEY` secret. `aur.yml` deploys
-   on release.
-5. **COPR.** Create project `justin13888/purr`; add a package built from this Git
-   repo (`.copr/Makefile`); add the GitHub webhook for auto-rebuilds.
-6. **(Optional) nixpkgs / Alpine aports.** Upstream the `flake.nix` derivation and
-   `packaging/alpine/APKBUILD` via their respective review processes.
+**One-time setup**
+- ✅ `justin13888/homebrew-tap` repo + `HOMEBREW_TAP_TOKEN` secret — done.
+- ✅ `microsoft/winget-pkgs` fork + `WINGET_TOKEN` secret — done.
+- ✅ Repo setting *Settings → Actions → General → "Allow GitHub Actions to create and
+  approve pull requests"* — enabled (lets release-plz open the PR on `GITHUB_TOKEN`).
+- `cargo login` on your machine with a crates.io token so the manual `cargo publish`
+  works. The token stays local; it is never added to CI.
 
-After the first release, confirm the `on: release` workflows ran (`.deb`/`.rpm`
-uploaded, winget PR opened, AUR pushed) and iterate if any failed.
+**Cutting a release**
+1. A push to `master` opens/updates the release-plz PR (version bump + `CHANGELOG.md`).
+2. Merge that PR.
+3. Locally, cut the release:
+   ```bash
+   git checkout master && git pull
+   git tag v1.0.0
+   git push origin v1.0.0   # human push → triggers cargo-dist's release.yml
+   cargo publish            # crates.io (last; until Trusted Publishing)
+   ```
+   cargo-dist builds the GitHub Release (tarballs, `.msi`, installers, Homebrew
+   formula → tap). When it finishes, `package-linux.yml` (`.deb`/`.rpm`) and
+   `winget.yml` chain off it via `workflow_run`.
+4. Confirm the cascade: `.deb`/`.rpm` attached to the release, winget PR opened, tap
+   updated. If a chained job didn't run, re-run it via its `workflow_dispatch`, e.g.
+   `gh workflow run package-linux.yml -f release-tag=v1.0.0`.
+
+**Follow-ups (optional / deferred)**
+- **Trusted Publishing.** Enable crates.io Trusted Publishing (OIDC) for the repo, then
+  add the tokenless publish job at the `TODO(trusted-publishing)` marker in
+  `release-plz.yml` and drop the manual `cargo publish`.
+- **AUR.** Create an AUR account; add your SSH public key; create empty packages
+  `purr-bin` and `purr-git`; add the `AUR_SSH_PRIVATE_KEY` secret. `aur.yml` then
+  deploys on each release (no workflow edit needed — it already chains on Release).
+- **COPR.** Create project `justin13888/purr`; add a package built from this Git repo
+  (`.copr/Makefile`); add the GitHub webhook for auto-rebuilds.
+- **nixpkgs / Alpine aports.** Upstream the `flake.nix` derivation and
+  `packaging/alpine/APKBUILD` via their respective review processes.
