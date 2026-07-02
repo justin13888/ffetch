@@ -28,13 +28,21 @@ does **not** trigger `on: release`, so those workflows use `on: workflow_run` in
 > and [`cargo-generate-rpm`](https://github.com/cat-in-136/cargo-generate-rpm)
 > (issue #8's note suggesting cargo-dist can emit them is incorrect).
 
+> **Note on Homebrew completions.** cargo-dist's generated formula installs only the
+> `purr` binary and dumps the bundled `purr.1` + `completions/` into `pkgshare`, so
+> `brew install` alone gives no working completions or `man purr`. `homebrew-completions.yml`
+> chains off Release completing and patches the formula in the tap to add
+> `man1.install` / `{bash,zsh,fish}_completion.install` (idempotent; fails loudly if
+> cargo-dist's template changes). The Windows PowerShell completion (`purr.ps1`) is
+> shipped in the `.zip`/`.msi` instead — it is not auto-loaded, so users dot-source it.
+
 ## Channels
 
 | Channel | Recipe | Built / submitted by | One-time manual setup |
 |---------|--------|----------------------|------------------------|
-| crates.io | `Cargo.toml` | manual local `cargo publish` (→ Trusted Publishing) | `cargo login` locally — **no CI secret** |
+| crates.io | `Cargo.toml` | manual local `cargo publish`, or `crates-io-publish.yml` once enabled | `cargo login` locally, or set up Trusted Publishing (see Follow-ups) |
 | GitHub Release (bins, installers) | `[workspace.metadata.dist]` | cargo-dist `release.yml` | none — owner pushes the tag locally |
-| Homebrew | cargo-dist `homebrew` installer | cargo-dist → `justin13888/homebrew-tap` | ✅ tap repo + `HOMEBREW_TAP_TOKEN` (done) |
+| Homebrew | cargo-dist `homebrew` installer + `homebrew-completions.yml` | cargo-dist → `justin13888/homebrew-tap`, then the workflow adds completions/man | ✅ tap repo + `HOMEBREW_TAP_TOKEN` (done) |
 | winget | `wix/main.wxs` (msi) | `winget.yml` (chains on `workflow_run: Release`) | ✅ `winget-pkgs` fork + `WINGET_TOKEN` (done) |
 | `.deb` / `.rpm` (download) | `[package.metadata.deb]`, `[package.metadata.generate-rpm]` | `package-linux.yml` (chains on `workflow_run: Release`) | none (attached to the release) |
 | Fedora COPR — *deferred* | `packaging/rpm/purrfetch.spec` + `.copr/Makefile` | COPR (build-from-git) | create COPR project `justin13888/purr` + webhook |
@@ -56,7 +64,8 @@ packaging/
   aur/purr-git/{PKGBUILD,.SRCINFO}
   alpine/APKBUILD
   rpm/purrfetch.spec
-.github/workflows/{package-linux,winget,aur}.yml   # chain on `workflow_run: Release` (aur deferred)
+.github/workflows/{package-linux,winget,aur,homebrew-completions}.yml  # chain on `workflow_run: Release` (aur deferred)
+.github/workflows/crates-io-publish.yml            # tag-triggered crates.io publish (Trusted Publishing; gated off)
 ```
 
 ## Self-verification (podman)
@@ -129,16 +138,21 @@ cuts each release locally.
    cargo publish            # crates.io (last; until Trusted Publishing)
    ```
    cargo-dist builds the GitHub Release (tarballs, `.msi`, installers, Homebrew
-   formula → tap). When it finishes, `package-linux.yml` (`.deb`/`.rpm`) and
-   `winget.yml` chain off it via `workflow_run`.
+   formula → tap). When it finishes, `package-linux.yml` (`.deb`/`.rpm`),
+   `winget.yml`, and `homebrew-completions.yml` (adds completions/man to the tap
+   formula) chain off it via `workflow_run`.
 4. Confirm the cascade: `.deb`/`.rpm` attached to the release, winget PR opened, tap
-   updated. If a chained job didn't run, re-run it via its `workflow_dispatch`, e.g.
+   updated with a follow-up "install shell completions and man page" commit. If a
+   chained job didn't run, re-run it via its `workflow_dispatch`, e.g.
    `gh workflow run package-linux.yml -f release-tag=v1.0.0`.
 
 **Follow-ups (optional / deferred)**
-- **Trusted Publishing.** Enable crates.io Trusted Publishing (OIDC) for the repo, then
-  add the tokenless publish job at the `TODO(trusted-publishing)` marker in
-  `release-plz.yml` and drop the manual `cargo publish`.
+- **Trusted Publishing.** The tokenless, tag-triggered publish workflow already exists
+  (`.github/workflows/crates-io-publish.yml`) but is gated off. To enable: on crates.io,
+  configure a Trusted Publisher for the `purrfetch` crate (owner `justin13888`, repo
+  `purrfetch`, workflow `crates-io-publish.yml`), then set the repo variable
+  `CRATES_IO_TRUSTED_PUBLISHING=true`. After that, tag pushes publish automatically —
+  drop the manual `cargo publish` (step 3 above) from the runbook.
 - **AUR.** Create an AUR account; add your SSH public key; create empty packages
   `purr-bin` and `purr-git`; add the `AUR_SSH_PRIVATE_KEY` secret. `aur.yml` then
   deploys on each release (no workflow edit needed — it already chains on Release).

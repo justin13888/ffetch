@@ -100,7 +100,7 @@ brew install justin13888/tap/purr
 winget install justin13888.purr
 ```
 
-> The native packages (Debian/Ubuntu `.deb`, Fedora `.rpm`, Nix) also install the `man purr` page and bash/zsh/fish shell completions.
+> The native packages (Debian/Ubuntu `.deb`, Fedora `.rpm`, Nix) and Homebrew also install the `man purr` page and bash/zsh/fish shell completions. On Windows a PowerShell completion (`purr.ps1`) ships in the archive/MSI — it is not auto-loaded, so dot-source it from your `$PROFILE`.
 
 ### Git
 

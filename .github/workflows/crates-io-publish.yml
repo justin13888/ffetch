@@ -1,0 +1,51 @@
+# Publishes the crate to crates.io on a version tag using crates.io Trusted
+# Publishing (OIDC) — no crates.io API token stored in the repo.
+#
+# Gated OFF by default: the job only runs once the owner sets the repository
+# variable CRATES_IO_TRUSTED_PUBLISHING=true (do this AFTER configuring the
+# Trusted Publisher for the `purrfetch` crate at
+# https://crates.io/crates/purrfetch/settings — Trusted Publishing). Until then it
+# is skipped, so tag pushes never fail here and the owner keeps publishing with the
+# manual local `cargo publish` documented in packaging/README.md.
+#
+# See https://crates.io/docs/trusted-publishing.
+name: Publish to crates.io
+
+on:
+  push:
+    # Same version-tag pattern cargo-dist's release.yml uses.
+    tags:
+      - "**[0-9]+.[0-9]+.[0-9]+*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to publish (e.g. v1.0.0)"
+        required: true
+
+permissions:
+  # Required for the OIDC token exchange with crates.io.
+  id-token: write
+  contents: read
+
+jobs:
+  publish:
+    name: cargo publish (Trusted Publishing)
+    runs-on: ubuntu-latest
+    # Owner-only, and only once Trusted Publishing has been configured + enabled.
+    if: >-
+      github.repository_owner == 'justin13888' &&
+      vars.CRATES_IO_TRUSTED_PUBLISHING == 'true'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Authenticate to crates.io
+        id: auth
+        uses: rust-lang/crates-io-auth-action@v1
+      - name: Publish
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+        run: cargo publish --locked

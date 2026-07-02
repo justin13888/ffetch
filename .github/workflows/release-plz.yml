@@ -18,10 +18,11 @@ jobs:
   #   git tag vX.Y.Z && git push origin vX.Y.Z   # human push triggers cargo-dist
   #   cargo publish                              # crates.io (until Trusted Publishing)
   #
-  # TODO(trusted-publishing): once crates.io Trusted Publishing (OIDC) is enabled for
-  # this repo, add a tokenless, tag-triggered release job here (with
-  # `permissions: id-token: write`) that runs the crates.io publish, replacing the
-  # manual local `cargo publish`. See https://crates.io/docs/trusted-publishing.
+  # Trusted Publishing: a tokenless, tag-triggered crates.io publish job already
+  # exists at .github/workflows/crates-io-publish.yml. It is gated OFF until the
+  # owner configures the Trusted Publisher on crates.io and sets the repository
+  # variable CRATES_IO_TRUSTED_PUBLISHING=true; once enabled it replaces the manual
+  # local `cargo publish`. See https://crates.io/docs/trusted-publishing.
   release-plz-pr:
     name: Release-plz PR
     runs-on: ubuntu-latest
