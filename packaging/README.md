@@ -38,6 +38,11 @@ would not trigger `release.yml`, and a PAT is disallowed by policy.
 > `man1.install` / `{bash,zsh,fish}_completion.install` (idempotent; fails loudly if
 > cargo-dist's template changes). The Windows PowerShell completion (`purr.ps1`) is
 > shipped in the `.zip`/`.msi` instead — it is not auto-loaded, so users dot-source it.
+>
+> Both tap commits — the formula from `release.yml` and the completions patch from
+> `homebrew-completions.yml` — are authored by `github-actions[bot]`. `release.yml` is
+> dist-generated but edited to override dist's stock `axo bot` identity, so `ci` is
+> listed in `allow-dirty` (`[workspace.metadata.dist]`) to keep dist from reverting it.
 
 ## Channels
 
@@ -138,7 +143,9 @@ the tag.
 **Cutting a release**
 1. A push to `master` opens/updates the release-plz PR (version bump + `CHANGELOG.md`).
 2. Merge that PR. On merge, the `release-plz release` job publishes the new version to
-   crates.io via Trusted Publishing (no token). It does **not** tag or build binaries.
+   crates.io via Trusted Publishing (no token). It does **not** tag or build binaries —
+   its run summary prints the exact `git tag …` command below as a reminder, since
+   forgetting it leaves the crate on crates.io with no matching GitHub release.
 3. Locally, push the tag to trigger the GitHub binary release:
    ```bash
    git checkout master && git pull
