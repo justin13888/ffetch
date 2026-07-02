@@ -855,8 +855,20 @@ impl From<ProbeType> for ProbeResultFunction {
                     Users::new_with_refreshed_list()
                         .iter()
                         .filter(|user| {
-                            let numeric_id = *user.id().to_owned();
-                            (1000..65535).contains(&numeric_id)
+                            // On Unix, regular login users fall in the
+                            // 1000..65535 UID range. Windows identifies users by
+                            // SID, which has no such numeric range, so the
+                            // heuristic doesn't apply there — include everyone.
+                            #[cfg(unix)]
+                            {
+                                let numeric_id = *user.id().to_owned();
+                                (1000..65535).contains(&numeric_id)
+                            }
+                            #[cfg(not(unix))]
+                            {
+                                let _ = user;
+                                true
+                            }
                         })
                         .map(|user| user.name().to_string())
                         .collect::<Vec<_>>(),
