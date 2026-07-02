@@ -1,30 +1,63 @@
 name: Release-plz
 
-permissions:
-  contents: write
-  pull-requests: write
+permissions: {}
 
 on:
   push:
     branches: [master]
 
 jobs:
+  # Publishes the crate to crates.io once a release PR is merged (i.e. once the
+  # version in Cargo.toml is ahead of what is on crates.io). Publishing uses
+  # crates.io Trusted Publishing (OIDC) ONLY: release-plz performs the token
+  # exchange itself when `id-token: write` is granted and no registry token is
+  # present, so there is no CARGO_REGISTRY_TOKEN and no fallback. See
+  # https://release-plz.dev/docs/github/quickstart and
+  # https://crates.io/docs/trusted-publishing.
+  #
+  # This job does NOT create the git tag or the GitHub release: `git_tag_enable`
+  # and `git_release_enable` are false in release-plz.toml. cargo-dist owns the
+  # tag-triggered binary release, and a tag pushed here with GITHUB_TOKEN would
+  # not trigger release.yml anyway (and a PAT is disallowed by policy). The owner
+  # pushes `v{version}` locally to kick off cargo-dist — see packaging/README.md.
+  #
+  # First-time note: crates.io Trusted Publishing cannot publish a brand-new
+  # crate. The very first version must be published once with a local
+  # `cargo publish`; every version after that is published here automatically.
+  release-plz-release:
+    name: Release-plz release (crates.io Trusted Publishing)
+    runs-on: ubuntu-latest
+    if: github.repository_owner == 'justin13888'
+    permissions:
+      contents: read
+      id-token: write # OIDC token exchange with crates.io — no registry token.
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Run release-plz
+        uses: release-plz/action@v0.5
+        with:
+          command: release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Intentionally no CARGO_REGISTRY_TOKEN: crates.io publishing is via
+          # Trusted Publishing (OIDC) only, and must never fall back to a token.
+
   # Opens/updates the "release" PR that bumps the version and updates CHANGELOG.md.
-  #
-  # Runs on the default GITHUB_TOKEN — no PAT and no crates.io token. This relies on
-  # the repo setting "Allow GitHub Actions to create and approve pull requests" being
-  # enabled. The git tag and the crates.io publish are NOT done here; the owner cuts
-  # the release manually after merging this PR (see packaging/README.md):
-  #   git tag vX.Y.Z && git push origin vX.Y.Z   # human push triggers cargo-dist
-  #   cargo publish                              # crates.io (until Trusted Publishing)
-  #
-  # TODO(trusted-publishing): once crates.io Trusted Publishing (OIDC) is enabled for
-  # this repo, add a tokenless, tag-triggered release job here (with
-  # `permissions: id-token: write`) that runs the crates.io publish, replacing the
-  # manual local `cargo publish`. See https://crates.io/docs/trusted-publishing.
+  # Runs on the default GITHUB_TOKEN — no PAT. This relies on the repo setting
+  # "Allow GitHub Actions to create and approve pull requests" being enabled.
   release-plz-pr:
     name: Release-plz PR
     runs-on: ubuntu-latest
+    if: github.repository_owner == 'justin13888'
+    permissions:
+      contents: write
+      pull-requests: write
     concurrency:
       group: release-plz-${{ github.ref }}
       cancel-in-progress: false
@@ -33,6 +66,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: false
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
       - name: Run release-plz

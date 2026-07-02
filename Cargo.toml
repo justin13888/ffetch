@@ -4,7 +4,7 @@ version = "1.0.0"
 edition = "2024"
 rust-version = "1.85"
 authors = ["justin13888 <20733699+justin13888@users.noreply.github.com>"]
-description = "Fast, featureful, cross-platform fetching tool written in Rust "
+description = "Fast, featureful, cross-platform fetching tool written in Rust"
 readme = "README.md"
 repository = "https://github.com/justin13888/purrfetch"
 homepage = "https://github.com/justin13888/purrfetch"
@@ -77,6 +77,9 @@ targets = ["aarch64-apple-darwin", "aarch64-unknown-linux-gnu", "x86_64-apple-da
 install-path = "CARGO_HOME"
 # Whether to install an updater program
 install-updater = false
+# The msi's wix/main.wxs is hand-edited (installs purr.ps1 alongside the binary),
+# so tell dist not to expect a pristine generated file.
+allow-dirty = ["msi"]
 # Extra files to bundle in every release archive (the man page and shell
 # completions; regenerate with `mise run man` / `mise run completions`)
 include = ["man/purr.1", "completions"]

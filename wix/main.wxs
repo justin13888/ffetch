@@ -128,6 +128,21 @@
                                 Source='$(var.CargoTargetBinDir)\purr.exe'
                                 KeyPath='yes'/>
                         </Component>
+                        <!--
+                          PowerShell completion, installed next to purr.exe. Unlike the
+                          Unix shells it is not auto-loaded; dot-source it from your
+                          $PROFILE: `. "$(Split-Path (Get-Command purr).Source)\purr.ps1"`.
+                          $(sys.SOURCEFILEDIR) resolves relative to this wxs, so the path
+                          is stable regardless of the WiX build's working directory.
+                        -->
+                        <Component Id='completions_ps1' Guid='*'>
+                            <File
+                                Id='ps1_0'
+                                Name='purr.ps1'
+                                DiskId='1'
+                                Source='$(sys.SOURCEFILEDIR)..\completions\purr.ps1'
+                                KeyPath='yes'/>
+                        </Component>
                     </Directory>
                 </Directory>
             </Directory>
@@ -150,6 +165,7 @@
             <!--<ComponentRef Id='License'/>-->
 
             <ComponentRef Id='binary0'/>
+            <ComponentRef Id='completions_ps1'/>
 
             <Feature
                 Id='Environment'

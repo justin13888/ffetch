@@ -5,6 +5,9 @@
 //! command that backs `purr --help`, so they can never drift from the CLI. The
 //! results are committed under `completions/` and installed by the distribution
 //! packages (deb/rpm/AUR/Alpine/Nix) into the shells' standard completion dirs.
+//! The PowerShell completion (`purr.ps1`) ships in the Windows release archive/MSI;
+//! unlike the Unix shells it is not auto-loaded, so users dot-source it from their
+//! profile.
 //!
 //! Run via `mise run completions` (or `cargo run --example gen-completions`);
 //! `mise run completions-check` verifies they are up to date.
@@ -27,11 +30,13 @@ fn main() -> std::io::Result<()> {
     let mut cmd = Cli::command();
 
     // Conventional filenames per shell: bash sources `purr.bash`, zsh autoloads
-    // `_purr` from an fpath dir, fish reads `purr.fish` from a completions dir.
+    // `_purr` from an fpath dir, fish reads `purr.fish` from a completions dir,
+    // PowerShell dot-sources `purr.ps1`.
     for (shell, file) in [
         (Shell::Bash, "purr.bash"),
         (Shell::Zsh, "_purr"),
         (Shell::Fish, "purr.fish"),
+        (Shell::PowerShell, "purr.ps1"),
     ] {
         let mut buf: Vec<u8> = Vec::new();
         generate(shell, &mut cmd, BIN_NAME, &mut buf);
