@@ -77,9 +77,11 @@ targets = ["aarch64-apple-darwin", "aarch64-unknown-linux-gnu", "x86_64-apple-da
 install-path = "CARGO_HOME"
 # Whether to install an updater program
 install-updater = false
-# The msi's wix/main.wxs is hand-edited (installs purr.ps1 alongside the binary),
-# so tell dist not to expect a pristine generated file.
-allow-dirty = ["msi"]
+# Hand-edited generated files, so dist must not expect them pristine:
+#   "msi" — wix/main.wxs installs purr.ps1 alongside the binary.
+#   "ci"  — release.yml attributes the Homebrew tap commit to github-actions[bot]
+#           (the project bot) rather than dist's stock "axo bot" identity.
+allow-dirty = ["ci", "msi"]
 # Extra files to bundle in every release archive (the man page and shell
 # completions; regenerate with `mise run man` / `mise run completions`)
 include = ["man/purr.1", "completions"]

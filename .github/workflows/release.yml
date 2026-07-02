@@ -286,8 +286,12 @@ jobs:
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       PLAN: ${{ needs.plan.outputs.val }}
-      GITHUB_USER: "axo bot"
-      GITHUB_EMAIL: "admin+bot@axo.dev"
+      # Intentional local edit of this dist-generated file: attribute tap commits
+      # to the project bot (matches homebrew-completions.yml) instead of dist's
+      # stock "axo bot". Kept out of sync with the template via allow-dirty=["ci"]
+      # in Cargo.toml, so `dist generate` won't revert it.
+      GITHUB_USER: "github-actions[bot]"
+      GITHUB_EMAIL: "41898282+github-actions[bot]@users.noreply.github.com"
     if: ${{ !fromJson(needs.plan.outputs.val).announcement_is_prerelease || fromJson(needs.plan.outputs.val).publish_prereleases }}
     steps:
       - uses: actions/checkout@v6
