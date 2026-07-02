@@ -108,6 +108,11 @@ cuts each release locally.
 **One-time setup**
 - ✅ `justin13888/homebrew-tap` repo + `HOMEBREW_TAP_TOKEN` secret — done.
 - ✅ `microsoft/winget-pkgs` fork + `WINGET_TOKEN` secret — done.
+  - ⚠️ **First submission is manual.** `winget.yml` uses `winget-releaser`, which only
+    *updates* a package that already exists in `winget-pkgs`. Submit the initial
+    `justin13888.purr` manifest once (e.g. `wingetcreate new`) so future releases can
+    auto-update. Until that lands upstream, `winget.yml` self-skips instead of failing
+    the release.
 - ✅ Repo setting *Settings → Actions → General → "Allow GitHub Actions to create and
   approve pull requests"* — enabled (lets release-plz open the PR on `GITHUB_TOKEN`).
 - `cargo login` on your machine with a crates.io token so the manual `cargo publish`
