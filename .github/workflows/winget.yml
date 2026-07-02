@@ -39,13 +39,25 @@ jobs:
        (github.event.workflow_run.conclusion == 'success' &&
         github.event.workflow_run.event == 'push'))
     steps:
-      - name: Check for WINGET_TOKEN
+      - name: Check winget preconditions
         id: guard
         env:
           WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
         run: |
           if [ -z "$WINGET_TOKEN" ]; then
             echo "WINGET_TOKEN is not set; skipping winget submission." >&2
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # winget-releaser can only UPDATE a package that already exists in
+          # winget-pkgs; the first-ever submission must be done manually (e.g.
+          # `wingetcreate new`, see packaging/README.md). Skip (rather than fail
+          # the release) until that one-time bootstrap has landed upstream.
+          pkg_path="manifests/j/justin13888/purr"
+          code=$(curl -sS -o /dev/null -w '%{http_code}' \
+            "https://api.github.com/repos/microsoft/winget-pkgs/contents/${pkg_path}")
+          if [ "$code" = "404" ]; then
+            echo "justin13888.purr is not yet in winget-pkgs (HTTP $code); skipping until the first manual submission." >&2
             echo "skip=true" >> "$GITHUB_OUTPUT"
           fi
 
